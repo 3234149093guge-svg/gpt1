@@ -339,12 +339,11 @@ public class MainActivity extends Activity {
                     "https://www.iesdouyin.com/share/video/"+id+"/",
                     "https://www.douyin.com/share/video/"+id+"/"
                 };
-                final java.util.LinkedHashSet<String> visited=new java.util.LinkedHashSet<>();
-                visited.add(link);
-                visited.add(initialFinalUrl);
+                // Mirror v0.4: attempt BOTH share pages once even if the
+                // original short URL already redirected to one of them.
+                // A fresh request may return full SSR metadata after redirect.
                 for(int k=0;k<urls.length&&found.isEmpty();k++){
                     String url=urls[k];
-                    if(!visited.add(url))continue;
                     stage=(k==0?"移动分享页":"网页版分享页");
                     send("parseProgress","正在检查公开视频信息…");
                     try{
