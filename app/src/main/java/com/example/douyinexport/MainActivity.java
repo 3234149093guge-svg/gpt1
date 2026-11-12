@@ -148,31 +148,164 @@ public class MainActivity extends Activity {
         if(cookies!=null)c.setRequestProperty("Cookie",cookies);
         return c;
     }
+    // Short links often redirect to a browser-rendered page with no plain MP4 URL.
+    // Prefer the public mobile share page's embedded video metadata when available.
+    private static String videoId(String text) {
+        if(text==null)return "";
+        Matcher m=Pattern.compile("(?:/video/|/share/video/|[?&](?:modal_id|aweme_id)=)([0-9]{15,22})").matcher(text);
+        return m.find()?m.group(1):"";
+    }
+    private String getHtml(String url)throws Exception {
+        HttpURLConnection c=connect(url,"text/html,application/xhtml+xml,*/*");
+        c.setRequestProperty("Accept-Language","zh-CN,zh;q=0.9");
+        try{
+            int code=c.getResponseCode();
+            if(code>=400)throw new IOException("HTTP "+code+"："+Uri.parse(url).getHost());
+            String target=c.getURL().toString();
+            if(douyin(target))sourceUrl=target;
+            ByteArrayOutputStream b=new ByteArrayOutputStream();
+            try(InputStream in=c.getInputStream()){copy(in,b,6L*1024*1024);}
+            return b.toString("UTF-8");
+        }finally{c.disconnect();}
+    }
+    private static String jsonObjectFollowing(String html,String key) {
+        int pos=html.indexOf(key);
+        if(pos<0)return null;
+        int start=html.indexOf('{',pos+key.length());
+        if(start<0)return null;
+        boolean quoted=false,escaped=false;int depth=0;
+        for(int i=start;i<html.length();i++){
+            char c=html.charAt(i);
+            if(quoted){
+                if(escaped)escaped=false;
+                else if(c=='\\')escaped=true;
+                else if(c=='"')quoted=false;
+            }else if(c=='"')quoted=true;
+            else if(c=='{')depth++;
+            else if(c=='}'&&--depth==0)return html.substring(start,i+1);
+        }
+        return null;
+    }
+    private static String listUrl(JSONObject address) {
+        if(address==null)return "";
+        org.json.JSONArray urls=address.optJSONArray("url_list");
+        if(urls==null)return "";
+        for(int i=0;i<urls.length();i++){
+            String value=urls.optString(i,"").replace("&amp;","&");
+            if(https(value))return value;
+        }
+        return "";
+    }
+    private static String fromVideoObject(JSONObject video) {
+        if(video==null)return "";
+        String s=listUrl(video.optJSONObject("play_addr"));
+        if(!s.isEmpty())return s;
+        s=listUrl(video.optJSONObject("play_addr_h264"));
+        if(!s.isEmpty())return s;
+        // Some public pages nest alternate rendition URLs inside bit_rate.
+        org.json.JSONArray rates=video.optJSONArray("bit_rate");
+        if(rates!=null)for(int i=0;i<rates.length();i++){
+            JSONObject rate=rates.optJSONObject(i);
+            if(rate!=null){
+                s=listUrl(rate.optJSONObject("play_addr"));
+                if(!s.isEmpty())return s;
+            }
+        }
+        return "";
+    }
+    private static String visitMedia(Object obj,int depth){
+        if(depth>18||obj==null||obj==JSONObject.NULL)return "";
+        if(obj instanceof JSONObject){
+            JSONObject item=(JSONObject)obj;
+            String s=fromVideoObject(item.optJSONObject("video"));
+            if(!s.isEmpty())return s;
+            s=fromVideoObject(item);
+            if(!s.isEmpty())return s;
+            Iterator<String> it=item.keys();
+            while(it.hasNext()){
+                String k=it.next();
+                Object child=item.opt(k);
+                if(child instanceof JSONObject||child instanceof org.json.JSONArray){
+                    s=visitMedia(child,depth+1);
+                    if(!s.isEmpty())return s;
+                }
+            }
+        }else if(obj instanceof org.json.JSONArray){
+            org.json.JSONArray a=(org.json.JSONArray)obj;
+            for(int i=0;i<a.length();i++){
+                String s=visitMedia(a.opt(i),depth+1);
+                if(!s.isEmpty())return s;
+            }
+        }
+        return "";
+    }
+    private static String structuredMedia(String html) {
+        String data=jsonObjectFollowing(html,"_ROUTER_DATA");
+        if(data!=null)try{
+            String result=visitMedia(new JSONObject(data),0);
+            if(!result.isEmpty())return result;
+        }catch(Exception ignored){}
+        // Legacy pages may include URL-encoded JSON in a RENDER_DATA script.
+        Matcher m=Pattern.compile("<script[^>]*id=[\"']RENDER_DATA[\"'][^>]*>(.*?)</script>",Pattern.DOTALL|Pattern.CASE_INSENSITIVE).matcher(html);
+        if(m.find())try{
+            String decoded=java.net.URLDecoder.decode(m.group(1),"UTF-8");
+            String result=visitMedia(new JSONObject(decoded),0);
+            if(!result.isEmpty())return result;
+        }catch(Exception ignored){}
+        return "";
+    }
+    private static String scanDirectVideo(String html){
+        Matcher m=Pattern.compile("https?://[^\\s\"'<>]+").matcher(html.replace("\\/","/").replace("&amp;","&"));
+        while(m.find()){
+            String v=m.group().replaceAll("[,;)]$","");
+            if(https(v)&&(v.contains(".mp4")||v.contains("douyinvod.com")))return v;
+        }
+        return "";
+    }
     private void resolveLink(String text){
         try{
-            String link=findUrl(text);
-            if(!https(link))throw new IOException("请粘贴 HTTPS 分享链接");
+            final String link=findUrl(text);
+            if(!https(link))throw new IOException("请粘贴有效的 HTTPS 分享链接");
             mediaUrl="";video=null;audio=null;sourceUrl=link;
             if(!douyin(link)){
                 if(media(link)){mediaUrl=link;send("media",link);return;}
-                throw new IOException("仅支持抖音分享链接或直接媒体链接");
+                throw new IOException("仅支持抖音分享链接或视频直链");
             }
-            send("info","正在解析链接……");
-            HttpURLConnection c=connect(link,"text/html,*/*");
+            send("info","步骤 1/3：解析短链及作品信息……");
+            String id=videoId(link),html="";
             try{
-                if(c.getResponseCode()>=400)throw new IOException("网页 HTTP "+c.getResponseCode());
-                sourceUrl=c.getURL().toString();
-                ByteArrayOutputStream b=new ByteArrayOutputStream();
-                try(InputStream in=c.getInputStream()){copy(in,b,2L*1024*1024);}
-                String html=b.toString("UTF-8").replace("\\/","/").replace("\\u002F","/").replace("&amp;","&");
-                Matcher m=Pattern.compile("https?://[^\\s\"'<>]+").matcher(html);
-                while(m.find()){
-                    String candidate=m.group().replaceAll("[,;)]$","");
-                    if(https(candidate)&&media(candidate)){mediaUrl=candidate;break;}
+                html=getHtml(link);
+                if(id.isEmpty())id=videoId(sourceUrl);
+                if(id.isEmpty()){
+                    Matcher ref=Pattern.compile("(?:video/|aweme_id[=:][\"']?)([0-9]{15,22})").matcher(html);
+                    if(ref.find())id=ref.group(1);
                 }
-                if(mediaUrl.isEmpty())send("info","网页未返回直接视频地址。请点击“打开网页”播放视频，或导入本地视频。");
-                else send("media",mediaUrl);
-            } finally{c.disconnect();}
+            }catch(Exception e){send("info","分享页需要浏览器加载，尝试移动分享页……");}
+            String result=structuredMedia(html);
+            if(result.isEmpty()&&!id.isEmpty()){
+                send("info","步骤 2/3：读取移动分享页元数据……");
+                String[] pages={
+                    "https://www.iesdouyin.com/share/video/"+id+"/",
+                    "https://www.douyin.com/share/video/"+id+"/"
+                };
+                for(String page:pages){
+                    try{
+                        String body=getHtml(page);
+                        result=structuredMedia(body);
+                        if(!result.isEmpty())break;
+                        if(result.isEmpty())result=scanDirectVideo(body);
+                        if(!result.isEmpty())break;
+                    }catch(Exception ignored){}
+                }
+            }
+            if(result.isEmpty())result=scanDirectVideo(html);
+            if(!result.isEmpty()){
+                mediaUrl=result;
+                send("media",result);
+                return;
+            }
+            send("info","步骤 3/3：正在打开抖音网页。若视频没有自动加载，请点播放，再返回下载。");
+            runOnUiThread(()->openPage(link));
         }catch(Exception e){fail(e);}
     }
     private void openPage(String text){
