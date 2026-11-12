@@ -24,6 +24,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Check interactive HTML JavaScript syntax
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          html=Path("demo/app/src/main/assets/index.html").read_text()
+          code=html.split("<script>",1)[1].split("</script>",1)[0]
+          Path("/tmp/zhixu-preview.js").write_text(code)
+          PY
+          node --check /tmp/zhixu-preview.js
       - run: gradle --no-daemon --project-dir demo assembleDebug
       - run: test -s demo/app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
@@ -32,3 +41,8 @@ jobs:
           path: demo/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Zhixu-Layout-Source
+          path: demo/app/src/main/assets/index.html
+          retention-days: 30
