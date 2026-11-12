@@ -1,34 +1,103 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#081121"><title>视频提取器</title>
-<style>:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#081121;color:#edf3ff;font:15px/1.6 system-ui,'Noto Sans SC',sans-serif}main{max-width:720px;margin:auto;padding:24px 18px 70px}.tag{color:#8baaff;letter-spacing:2px;font-size:11px}h1{font-size:29px;line-height:1.2;margin:6px 0 12px}p,small{color:#98a9c0}.card{background:#122039;border:1px solid #293d59;padding:17px;border-radius:18px;margin:16px 0}.num{color:#98b4ff;font-size:12px;margin-right:8px}.title{font-weight:750;font-size:17px;margin-bottom:12px}textarea,input{background:#08152a;border:1px solid #3e5270;color:#f7faff;border-radius:11px;font:inherit;padding:12px;width:100%;outline:none}textarea{min-height:100px;resize:vertical}#text{min-height:230px;line-height:1.8}input{min-height:48px}button{border:1px solid #45638a;border-radius:11px;background:#253b5b;color:#fff;min-height:46px;font-weight:650;font-size:14px;padding:9px}button.primary{background:#587df5;border-color:#587df5}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}.tri{grid-template-columns:repeat(3,minmax(0,1fr))}.status{border:1px solid #3c577e;padding:12px;border-radius:12px;margin:12px 0;color:#cadef7;white-space:pre-wrap;overflow-wrap:anywhere}.status.error{color:#ffc6ca;border-color:#aa5157}.status.ok{color:#b7efd8;border-color:#367963}.hint{font-size:12px;color:#95a8c1;margin-top:9px}label{font-size:12px;color:#adc1dd;display:block;margin:12px 0 6px}#media{overflow-wrap:anywhere;font-size:11px;color:#abbcdb}</style></head><body><main>
-<div class="tag">ANDROID · VIDEO / AUDIO / TEXT</div><h1>一个链接，三种导出。</h1><p>抖音分享链接 → 视频、音频和 AI 文字稿。</p>
-<section class="card"><div class="title"><span class="num">01</span>粘贴分享链接</div><textarea id="url" placeholder="https://v.douyin.com/..."></textarea><div class="grid tri"><button onclick="App.paste()">粘贴</button><button class="primary" onclick="resolve()">解析链接</button><button onclick="openPage()">打开网页</button></div><p class="hint">解析不到时可在内置网页里播放，尝试发现可访问的媒体地址。</p><div id="media"></div></section>
-<section class="card"><div class="title"><span class="num">02</span>导出视频与音频</div><div class="grid"><button class="primary" onclick="App.download()">🎬 视频 MP4</button><button onclick="App.audio()">🎧 音频 M4A</button></div><div class="grid"><button onclick="App.pick()">＋ 导入本地视频</button><button onclick="App.pickAudio()">＋ 导入本地音频</button></div><p class="hint">视频只能从可访问的媒体地址保存。无法直接下载时，可使用有权处理的本地视频文件。</p></section>
-<div id="status" class="status" aria-live="polite">准备就绪。请粘贴视频链接或导入本地视频。</div>
-<section class="card" id="trans">
-<div class="title"><span class="num">03</span>离线中文语音转文字</div>
-<p class="hint">✅ 内置 SenseVoice 高精度中文识别模型 · 不用 API Key · 不上传音频 · 无需联网。首次使用会解压约 230 MB 模型。</p>
-<div class="grid">
-<button class="primary" onclick="App.offlineTranscribe()">✨ 开始离线识别</button>
-<button onclick="App.cancelTranscription()">停止识别</button>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0d1421"><title>知音 · 视频提取</title>
+<style>
+:root{color-scheme:dark;--bg:#0d1421;--card:#162131;--border:#2b394d;--fg:#f2f5fb;--sub:#91a2b9;--accent:#b1beff;--ok:#9bd8ba;--bad:#ffbdbd}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.65 -apple-system,BlinkMacSystemFont,'Noto Sans SC',sans-serif}
+main{max-width:720px;margin:0 auto;padding:23px 19px 75px}.top{display:flex;align-items:center;justify-content:space-between;margin:0 0 28px}.brand{font-size:15px;font-weight:750;letter-spacing:.3px}.brand span{display:inline-flex;align-items:center;justify-content:center;background:#eef2ff;color:#1a2231;width:30px;height:30px;border-radius:9px;font-size:17px;margin-right:9px}.edition{font-size:11px;letter-spacing:1.1px;color:#7d8ca5}
+.eyebrow{font-size:11px;color:var(--accent);letter-spacing:2px;margin-bottom:6px}h1{font-weight:760;letter-spacing:-.6px;line-height:1.26;font-size:27px;margin:0 0 8px}.sub{font-size:12px;color:var(--sub);line-height:1.75;margin:0 0 26px}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px;margin:15px 0}.heading{font-size:16px;font-weight:750;margin-bottom:13px}.num{font-size:12px;color:var(--accent);margin-right:8px}
+textarea{width:100%;resize:vertical;font:inherit;color:#f6f8fc;background:#0e1725;border:1px solid #34445a;border-radius:10px;padding:12px;outline:none;min-height:96px;line-height:1.7}textarea::placeholder{color:#697d99}textarea:focus{border-color:#8299f9}
+button{font:inherit;font-weight:650;color:#eaf0ff;background:#24364e;border:1px solid #3c536f;border-radius:10px;min-height:43px;padding:9px 10px}button.primary{background:#b0bfff;color:#101a32;border-color:#b0bfff}button.secondary{background:transparent}button:disabled{opacity:.44}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:11px}
+.hint{font-size:12px;color:var(--sub);line-height:1.78;margin:11px 0 0}.label{font-size:12px;color:#b4c3d8;display:block;margin:17px 0 7px}
+.state{display:none;margin-top:14px;background:#101e2c;border:1px solid #35516c;border-radius:12px;padding:14px}.state.ok{background:#11271f;border-color:#345948}.state.fail{background:#251d24;border-color:#684754}
+.state-head{display:flex;align-items:center;gap:9px}.state-symbol{width:25px;height:25px;border-radius:7px;background:#3a4c67;color:#dce5ff;display:grid;place-items:center;font-weight:750}.state.fail .state-symbol{background:#5e3540;color:#ffe0df}.state.ok .state-symbol{background:#245642;color:#c0efd1}
+.state-title{font-size:15px;font-weight:750}.state-description{font-size:12px;color:#adbfd2;line-height:1.8;margin:8px 0 0}.diagnostic{font-size:11px;color:#8898ac;word-break:break-word;margin-top:7px}.retry{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:12px}.retry button{font-size:12px;min-height:38px;padding:7px 4px}.retry[hidden]{display:none}.progress{height:3px;background:#2c3a4f;overflow:hidden;border-radius:99px;margin-top:12px}.progress:before{content:'';display:block;width:42%;height:100%;background:#9badfa;animation:move 1.15s infinite alternate ease-in-out}@keyframes move{from{transform:translateX(-100%)}to{transform:translateX(240%)}}
+.banner{font-size:12px;color:#b6c7dc;background:#18283b;border-radius:10px;padding:11px 13px;margin:14px 0;word-break:break-word}.banner.error{background:#30212b;color:#ffc1c7}.banner.good{background:#183226;color:#b6f1ca}
+#text{min-height:215px}#srt{min-height:117px}footer{font-size:11px;color:#7f91a8;line-height:1.95;margin-top:22px}
+</style></head><body><main>
+<div class="top"><div class="brand"><span>知</span>知音 · Media</div><div class="edition">V0.5 / OFFLINE</div></div>
+<div class="eyebrow">VIDEO · AUDIO · TRANSCRIPT</div>
+<h1>一个链接，三种输出。</h1>
+<p class="sub">简洁提取视频和音轨，或转换为可编辑文字稿。解析失败只在当前页面提示，不再打开网页。</p>
+<section class="panel">
+<div class="heading"><span class="num">01</span>抖音视频链接</div>
+<textarea id="url" placeholder="在这里粘贴抖音分享内容&#10;https://v.douyin.com/…"></textarea>
+<div class="grid"><button id="paste" class="secondary" onclick="App.paste()">粘贴</button><button id="parse" class="primary" onclick="resolve()">解析视频</button></div>
+<p class="hint">仅在点击时发起解析，不会反复跳转网页。若失败，将说明可能的原因。</p>
+<div class="state" id="parseState" role="status">
+<div class="state-head"><span class="state-symbol" id="stateIcon">··</span><span class="state-title" id="stateTitle"></span></div>
+<p class="state-description" id="stateDescription"></p>
+<div class="diagnostic" id="stateDiagnostic"></div>
+<div class="progress" id="parseProgress"></div>
+<div class="retry" id="parseFallback" hidden>
+  <button onclick="resolve()">手动重试</button>
+  <button onclick="App.pick()">导入视频</button>
+  <button onclick="copyError()">复制错误</button>
 </div>
-<p class="hint">自动按停顿分段识别，支持长视频，提供中文标点和实时进度。若出现同音字/术语错误，可直接手动修改；字幕时间戳为片段级近似。</p>
-<label>可编辑中文文字稿</label>
-<textarea id="text" placeholder="离线识别得到的文字将显示在这里"></textarea>
-<div class="grid">
-<button class="primary" onclick="App.saveText(document.getElementById('text').value)">保存 TXT</button>
-<button onclick="copyField('text')">复制文字</button>
-</div>
-<label>带时间轴字幕（SRT）</label>
-<textarea id="srt" placeholder="识别完成后生成带时间戳的字幕文件" style="min-height:120px"></textarea>
-<div class="grid">
-<button class="primary" onclick="App.saveSrt(document.getElementById('srt').value)">保存 SRT</button>
-<button onclick="copyField('srt')">复制字幕</button>
 </div>
 </section>
-<p class="hint">保存位置：文件管理 → 下载 → 抖音提取器（Android 10+）。转写完全在本机进行，识别精度受音质、口音和模型限制；请预留至少600MB可用空间，低内存设备可能运行缓慢。M4A 不是 MP3。</p></main><script>
-function resolve(){var v=document.getElementById('url').value;if(v.trim())App.resolve(v);else status('请先粘贴链接',true)}
-function openPage(){App.open(document.getElementById('url').value)}
-function status(s,bad,ok){var el=document.getElementById('status');el.textContent=s;el.className='status'+(bad?' error':ok?' ok':'')}
-function copyField(id){var t=document.getElementById(id);t.select();try{document.execCommand('copy');status('已尝试复制文本',false,true)}catch(e){status('请长按文本手动复制',true)}}
-window.fromAndroid=function(d){switch(d.type){case 'link':document.getElementById('url').value=d.text;status('已读取链接，点击解析链接');break;case 'media':document.getElementById('media').textContent='候选视频地址：'+d.text;status('已识别候选视频地址，可尝试导出 MP4',false,true);break;case 'transcript':document.getElementById('text').value=d.text;status('文字稿已生成',false,true);break;case 'subtitles':document.getElementById('srt').value=d.text;status('带时间轴字幕已生成',false,true);break;case 'ready':case 'ok':status(d.text,false,true);break;case 'error':status(d.text,true);break;default:status(d.text)}}
+<section class="panel">
+<div class="heading"><span class="num">02</span>保存与提取</div>
+<div class="grid">
+<button class="primary" onclick="App.download()">视频 · MP4</button>
+<button onclick="App.audio()">音频 · M4A</button>
+<button onclick="App.pick()">导入本地视频</button>
+<button onclick="App.pickAudio()">导入本地音频</button>
+</div>
+<p class="hint">只有取得可访问的视频资源才能在线保存。如果链接解析失败，仍可以导入你有权处理的本地视频或音频。</p>
+</section>
+<div class="banner" id="notice">准备就绪。粘贴链接后点击“解析视频”，或直接导入媒体文件。</div>
+<section class="panel" id="trans">
+<div class="heading"><span class="num">03</span>离线中文转文字</div>
+<p class="hint">内置 SenseVoice 中文识别模型，不需要 API Key，不上传音频。</p>
+<div class="grid"><button class="primary" onclick="App.offlineTranscribe()">开始识别</button><button onclick="App.cancelTranscription()">停止识别</button></div>
+<label class="label">可编辑文字稿</label>
+<textarea id="text" placeholder="识别结果会显示在这里"></textarea>
+<div class="grid"><button class="primary" onclick="App.saveText(document.getElementById('text').value)">保存 TXT</button><button onclick="copyField('text')">复制文字</button></div>
+<label class="label">字幕 · SRT</label>
+<textarea id="srt" placeholder="带近似片段时间戳的字幕"></textarea>
+<div class="grid"><button onclick="App.saveSrt(document.getElementById('srt').value)">保存 SRT</button><button onclick="copyField('srt')">复制字幕</button></div>
+</section>
+<footer>文件保存至「下载 / 抖音提取器」。视频解析可能受平台登录、作品权限及链接有效性限制。离线识别模型和 v0.4 相同，无需联网。</footer>
+</main><script>
+let parsing=false,diagnostic="";
+const el=id=>document.getElementById(id);
+function setParsing(value){parsing=value;el('parse').disabled=value;el('paste').disabled=value;el('parse').textContent=value?'正在解析…':'解析视频'}
+function state(type,title,desc,diag){
+ const box=el('parseState');box.style.display='block';box.className='state'+(type==='fail'?' fail':type==='ok'?' ok':'');
+ el('stateIcon').textContent=type==='fail'?'!':type==='ok'?'✓':'··';
+ el('stateTitle').textContent=title;el('stateDescription').textContent=desc||'';
+ el('stateDiagnostic').textContent=diag||'';
+ el('parseProgress').style.display=type==='busy'?'block':'none';
+ el('parseFallback').hidden=type!=='fail';
+ diagnostic=title+'\n'+(desc||'')+'\n'+(diag||'');
+}
+function notice(t,type){el('notice').textContent=t;el('notice').className='banner'+(type==='error'?' error':type==='good'?' good':'')}
+function resolve(){
+ if(parsing)return;
+ const raw=el('url').value.trim();
+ if(!/https:\/\/\S+/.test(raw)){state('fail','链接格式错误','请从抖音分享菜单复制完整的作品链接。','LINK_FORMAT');return}
+ setParsing(true);state('busy','正在读取分享链接','仅执行本次请求，不会打开任何外站网页。','');
+ try{App.resolve(raw)}catch(e){setParsing(false);state('fail','无法开始解析',String(e),'JS_BRIDGE')}
+}
+function copyField(id){el(id).select();document.execCommand('copy');notice('已复制文本','good')}
+function copyError(){const tmp=document.createElement('textarea');tmp.value=diagnostic;document.body.appendChild(tmp);tmp.select();document.execCommand('copy');tmp.remove();notice('错误信息已复制','good')}
+el('url').addEventListener('input',()=>{if(!parsing)el('parseState').style.display='none'});
+window.fromAndroid=function(d){
+ switch(d.type){
+ case 'link':el('url').value=d.text;el('parseState').style.display='none';notice('已填入分享链接，点击解析开始','');break;
+ case 'parseStart':state('busy','正在读取分享链接',d.text);break;
+ case 'parseProgress':state('busy','正在获取作品信息',d.text);break;
+ case 'parseBusy':notice(d.text,'');break;
+ case 'parseError':{
+   setParsing(false);let e;try{e=JSON.parse(d.text)}catch(x){e={title:'无法解析视频',detail:d.text}}
+   state('fail',e.title,e.detail,e.diagnostic);notice('解析未成功。不会打开网页，可手动重试或导入本地视频。','error');break;
+ }
+ case 'media':setParsing(false);state('ok','视频解析成功','已找到可访问的视频地址。可以点击「视频 · MP4」保存。','');notice('解析成功，可以保存视频','good');break;
+ case 'transcript':el('text').value=d.text;notice('文字稿已生成','good');break;
+ case 'subtitles':el('srt').value=d.text;notice('SRT 字幕已生成','good');break;
+ case 'ready':case 'ok':notice(d.text,'good');break;
+ case 'error':if(parsing){setParsing(false);state('fail','解析失败',d.text,'')};notice(d.text,'error');break;
+ default:notice(d.text,'');
+ }
+}
 </script></body></html>
