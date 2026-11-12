@@ -243,10 +243,33 @@ function promptEdit(){const n=getNote();showModal('编辑学习笔记','<div cla
 function more(){showModal('资料管理','<div class="actionlist"><button data-action="outline">查看章节目录　↗</button><button data-action="category">修改分类与标签　↗</button><button data-action="exportMd">导出 Markdown　↗</button><button data-action="exportPdf">导出 / 打印 PDF　↗</button><button data-action="delete">删除此资料　↗</button></div>')}
 function outline(){close();const n=getNote(), titles=[...noteBody(n).matchAll(/^#{1,3}\s+(.+)/gm)];showModal('章节目录','<div class="actionlist">'+(titles.length?titles.map((m,i)=>'<button data-jump="'+i+'">'+esc(m[1])+'　↗</button>').join(''):'<p class="hint">当前笔记没有章节标题。</p>')+'</div>')}
 function category(){close();const n=getNote();showModal('整理资料','<div class="label">所属分类</div><select id="editCat" class="field">'+['运动健身','心理学','经济金融','哲学','未分类'].map(c=>'<option '+(c===n.cat?'selected':'')+'>'+c+'</option>').join('')+'</select><div class="label">标签 · 使用逗号分隔</div><input id="editTags" class="field" value="'+esc((n.tags||[]).join(', '))+'"><button class="btn dark full" data-action="saveCategory" style="margin-top:16px">保存资料信息</button>')}
-function chat(){s.chat=[];showModal('围绕这篇笔记提问','<div class="notice">演示问答采用本地规则回复，不是真实 AI 推理。</div><div id="chatlog"><div class="chatbubble">你可以问：这篇笔记的核心观点是什么？</div></div><div class="row" style="margin-top:16px"><input id="ask" class="field" placeholder="输入你的问题…"><button class="btn dark" data-action="ask">发送</button></div>')}
-function ask(){const n=getNote(),q=$('#ask')?.value.trim();if(!q)return;const answer='这是一段用于体验提问流程的本地示例回复。\n\n当前笔记主题：'+n.title+'。\n\n资料参考：'+(n.detail||n.text).replace(/[#*\n]/g,' ').slice(0,135)+'…\n\n正式版本接入模型后才能进行真实语义理解。';const log=$('#chatlog');log.innerHTML+='<div class="chatbubble user">'+esc(q)+'</div><div class="chatbubble">'+esc(answer)+'</div>';$('#ask').value='';log.lastElementChild.scrollIntoView({block:'nearest'})}
-function cards(){const n=getNote(),existing=db.cards.filter(c=>c.itemId===n.id);showModal('把理解变成记忆','<p class="hint">从知识点生成问题，留给以后的自己来回答。</p><div class="statement"><div class="eyebrow">RECALL CARDS</div><p>当前已有 '+existing.length+' 张记忆卡片</p></div><button class="btn dark full" data-action="generateCards">生成演示复习卡片</button><p class="hint" style="margin-top:11px">演示版使用内置样例和文字稿提取规则，不调用 AI。</p>')}
-function generateCards(){const n=getNote();const list=n.cards?.length?n.cards:[['这段资料主要探讨什么？',n.text.slice(0,130)||'请回到笔记复述内容。'],['你能复述一个重要结论吗？',noteBody(n).replace(/[#*\n]/g,' ').slice(0,130)]];for(const [q,a] of list){if(!db.cards.some(c=>c.itemId===n.id&&c.q===q))db.cards.push({id:uid(),itemId:n.id,q,a,stage:0,due:today()})}save();close();toast('复习卡片已加入今日计划');}
+
+function chat(){
+ s.chat=[];
+ showModal('询问当前笔记',
+ '<p class="aiinfo">此功能将向 ChatGPT 发送当前笔记内容与问题，不会上传其他学习资料。</p>'+
+ '<div id="chatlog"><div class="chatbubble">你可以让我解释概念、举例或检验知识点。</div></div>'+
+ '<div class="row" style="margin-top:15px"><input id="ask" class="field" placeholder="输入问题…"><button class="btn dark" data-action="ask">发送</button></div>');
+}
+function ask(){
+ const n=getNote(),q=$('#ask')?.value.trim();
+ if(!n||!q)return;
+ if(!requireAI())return;
+ if(aiPending){toast('上一条问题还在处理中');return}
+ const log=$('#chatlog');
+ if(log){log.innerHTML+='<div class="chatbubble user">'+esc(q)+'</div>';$('#ask').value=''}
+ requestAI('qa',noteBody(n),{question:q});
+}
+function cards(){
+ const n=getNote();
+ if(!n)return;
+ const existing=db.cards.filter(c=>c.itemId===n.id);
+ showModal('生成复习卡片','<p class="hint">GPT 会围绕当前笔记生成 4–6 道问答卡片。</p>'+
+ '<div class="airow"><div class="grow"><strong>当前 '+existing.length+' 张卡片</strong><div class="aistatus">新生成的卡片会加入今日复习，不覆盖此前记录。</div></div></div>'+
+ '<p class="aiinfo">点击生成即表示同意将当前笔记提交给 ChatGPT 处理。</p>'+
+ '<button class="aiaction primary" data-action="generateCards">使用 GPT 生成卡片</button>');
+}
+function generateCards(){const n=getNote();if(!n)return;if(!requireAI())return;requestAI('cards',noteBody(n));}
 function startReview(){s.reviewIds=db.cards.filter(c=>!c.due||c.due<=today()).map(c=>c.id);if(!s.reviewIds.length)return toast('今天暂时没有待复习的内容');s.reviewIndex=0;s.answer=false;s.page='quiz';render()}
 function rate(choice){const c=db.cards.find(x=>x.id===s.reviewIds[s.reviewIndex]);if(!c)return;c.stage=choice==='forget'?0:choice==='fuzzy'?Math.max(0,(c.stage||0)-1):Math.min(4,(c.stage||0)+1);const days=choice==='forget'?1:choice==='fuzzy'?3:[1,3,7,14,30][c.stage];const due=new Date();due.setDate(due.getDate()+days);c.due=due.toISOString().slice(0,10);db.logs.push({id:uid(),cardId:c.id,rating:choice,at:Date.now()});save();s.reviewIndex++;s.answer=false;if(s.reviewIndex===s.reviewIds.length){s.page='review';render();toast('今天的复习完成了')}else render()}
 function exportMd(){const n=getNote();close();exportFile(n.title.replace(/[\\/:*?"<>|]/g,'_')+'.md','# '+n.title+'\n\n'+noteBody(n)+'\n\n来源：'+(n.src||'演示资料'),'text/markdown');toast('已发起 Markdown 导出')}
