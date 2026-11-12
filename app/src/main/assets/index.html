@@ -6,12 +6,12 @@
 <div id="status" class="status" aria-live="polite">准备就绪。请粘贴视频链接或导入本地视频。</div>
 <section class="card" id="trans">
 <div class="title"><span class="num">03</span>离线中文语音转文字</div>
-<p class="hint">✅ 内置中文模型 · 不用 API Key · 不上传音频 · 无需联网。首次使用需要解压模型到手机存储。</p>
+<p class="hint">✅ 内置 SenseVoice 高精度中文识别模型 · 不用 API Key · 不上传音频 · 无需联网。首次使用会解压约 230 MB 模型。</p>
 <div class="grid">
 <button class="primary" onclick="App.offlineTranscribe()">✨ 开始离线识别</button>
 <button onclick="App.cancelTranscription()">停止识别</button>
 </div>
-<p class="hint">长视频会逐段解码识别，可查看实时进度；中文标点为规则补全，识别结果可以手动修改。</p>
+<p class="hint">自动按停顿分段识别，支持长视频，提供中文标点和实时进度。若出现同音字/术语错误，可直接手动修改；字幕时间戳为片段级近似。</p>
 <label>可编辑中文文字稿</label>
 <textarea id="text" placeholder="离线识别得到的文字将显示在这里"></textarea>
 <div class="grid">
@@ -25,7 +25,7 @@
 <button onclick="copyField('srt')">复制字幕</button>
 </div>
 </section>
-<p class="hint">保存位置：文件管理 → 下载 → 抖音提取器（Android 10+）。转写完全在本机进行，识别精度受音质、口音和模型限制；需预留额外模型存储空间。M4A 不是 MP3。</p></main><script>
+<p class="hint">保存位置：文件管理 → 下载 → 抖音提取器（Android 10+）。转写完全在本机进行，识别精度受音质、口音和模型限制；请预留至少600MB可用空间，低内存设备可能运行缓慢。M4A 不是 MP3。</p></main><script>
 function resolve(){var v=document.getElementById('url').value;if(v.trim())App.resolve(v);else status('请先粘贴链接',true)}
 function openPage(){App.open(document.getElementById('url').value)}
 function status(s,bad,ok){var el=document.getElementById('status');el.textContent=s;el.className='status'+(bad?' error':ok?' ok':'')}
