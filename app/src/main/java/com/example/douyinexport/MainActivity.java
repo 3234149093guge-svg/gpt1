@@ -147,7 +147,7 @@ public class MainActivity extends Activity {
     }
     private HttpURLConnection connect(String url,String accept)throws Exception {
         HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();
-        c.setConnectTimeout(8000);c.setReadTimeout(14000);c.setInstanceFollowRedirects(true);
+        c.setConnectTimeout(14000);c.setReadTimeout(30000);c.setInstanceFollowRedirects(true);
         c.setRequestProperty("User-Agent",ua);
         c.setRequestProperty("Accept",accept);
         if(!sourceUrl.isEmpty())c.setRequestProperty("Referer",sourceUrl);
@@ -171,7 +171,7 @@ public class MainActivity extends Activity {
             String target=c.getURL().toString();
             if(douyin(target))sourceUrl=target;
             ByteArrayOutputStream b=new ByteArrayOutputStream();
-            try(InputStream in=c.getInputStream()){copy(in,b,4L*1024*1024);}
+            try(InputStream in=c.getInputStream()){copy(in,b,6L*1024*1024);}
             return b.toString("UTF-8");
         }finally{c.disconnect();}
     }
@@ -291,51 +291,85 @@ public class MainActivity extends Activity {
         }catch(Exception e){send("error",title+"："+detail);}
     }
     private void resolveLink(String text){
-        String link=findUrl(text),stage="输入校验";
+        final String link=findUrl(text);
+        String stage="校验链接";
+        final java.util.ArrayList<String> traces=new java.util.ArrayList<>();
         try{
             if(!https(link)){
-                parseError("链接格式错误","请复制完整的抖音 HTTPS 分享链接。","URL_FORMAT");return;
-            }
-            if(!douyin(link)&&!media(link)){
-                parseError("不支持的链接","目前仅支持抖音分享链接和直接视频地址。","UNSUPPORTED_DOMAIN");return;
-            }
-            sourceUrl=link;mediaUrl="";
-            send("parseStart","正在读取分享链接…");
-            if(!douyin(link)){mediaUrl=link;send("media",link);return;}
-            String html="",id=videoId(link),lastFailure="";
-            stage="分享页";
-            try{html=getHtml(link);}catch(Exception e){lastFailure=describeNetwork(e);}
-            if(id.isEmpty())id=videoId(sourceUrl);
-            if(id.isEmpty()&&!html.isEmpty()){
-                Matcher m=Pattern.compile("(?:video/|aweme_id[=:][\"']?)([0-9]{15,22})").matcher(html);
-                if(m.find())id=m.group(1);
-            }
-            String videoAddress=structuredMedia(html);
-            if(videoAddress.isEmpty())videoAddress=scanDirectVideo(html);
-            // Only one extra request at most. Never open WebView, never loop.
-            if(videoAddress.isEmpty()&&!id.isEmpty()){
-                stage="公开视频信息";
-                send("parseProgress","未找到直接媒体地址，正在尝试最后一次作品信息查询…");
-                String alt="https://www.iesdouyin.com/share/video/"+id+"/";
-                if(sourceUrl.startsWith("https://www.iesdouyin.com/"))
-                    alt="https://www.douyin.com/share/video/"+id+"/";
-                try{
-                    String body=getHtml(alt);
-                    videoAddress=structuredMedia(body);
-                    if(videoAddress.isEmpty())videoAddress=scanDirectVideo(body);
-                }catch(Exception e){lastFailure=describeNetwork(e);}
-            }
-            if(videoAddress.isEmpty()){
-                String detail=lastFailure.isEmpty()?
-                    "未能获取可下载的视频地址。该作品可能需要登录、已删除或限制第三方访问。":
-                    lastFailure+"。仍无法取得该视频的媒体文件。";
-                parseError("解析失败",detail,"阶段："+stage+"；作品ID："+(id.isEmpty()?"未识别":id));
+                parseError("链接格式错误","请复制完整的抖音 HTTPS 分享链接。","URL_FORMAT");
                 return;
             }
-            mediaUrl=videoAddress;
-            send("media",videoAddress);
+            if(!douyin(link)&&!media(link)){
+                parseError("不支持的链接","目前支持抖音分享链接和直接视频地址。","UNSUPPORTED_DOMAIN");
+                return;
+            }
+            mediaUrl="";
+            sourceUrl=link;
+            send("parseStart","正在解析分享链接…");
+            if(!douyin(link)){
+                mediaUrl=link;
+                send("media",link);
+                return;
+            }
+
+            String id=videoId(link);
+            String found="";
+            String initialFinalUrl=link;
+            // Step 1: original public share URL, including legitimate short-link redirects.
+            stage="原分享链接";
+            try{
+                String html=getHtml(link);
+                initialFinalUrl=sourceUrl;
+                if(id.isEmpty())id=videoId(initialFinalUrl);
+                if(id.isEmpty()){
+                    Matcher m=Pattern.compile("(?:video/|aweme_id[=:][\"']?)([0-9]{15,22})").matcher(html);
+                    if(m.find())id=m.group(1);
+                }
+                found=structuredMedia(html);
+                if(found.isEmpty())found=scanDirectVideo(html);
+                traces.add("分享链接: "+(found.isEmpty()?"未发现播放地址":"成功"));
+            }catch(Exception e){
+                traces.add("分享链接: "+describeNetwork(e));
+            }
+
+            // v0.4 used BOTH public share endpoints. v0.5 accidentally removed one;
+            // restore the original working fallback without restoring the browser UI.
+            if(found.isEmpty()&&!id.isEmpty()){
+                final String[] urls={
+                    "https://www.iesdouyin.com/share/video/"+id+"/",
+                    "https://www.douyin.com/share/video/"+id+"/"
+                };
+                final java.util.LinkedHashSet<String> visited=new java.util.LinkedHashSet<>();
+                visited.add(link);
+                visited.add(initialFinalUrl);
+                for(int k=0;k<urls.length&&found.isEmpty();k++){
+                    String url=urls[k];
+                    if(!visited.add(url))continue;
+                    stage=(k==0?"移动分享页":"网页版分享页");
+                    send("parseProgress","正在检查公开视频信息…");
+                    try{
+                        String html=getHtml(url);
+                        found=structuredMedia(html);
+                        if(found.isEmpty())found=scanDirectVideo(html);
+                        traces.add(stage+": "+(found.isEmpty()?"未发现播放地址":"成功"));
+                    }catch(Exception e){
+                        traces.add(stage+": "+describeNetwork(e));
+                    }
+                }
+            }
+
+            if(found.isEmpty()){
+                final String why=id.isEmpty()?
+                    "已尝试解析分享链接，但没有识别到作品编号。请尝试重新从抖音复制分享链接。":
+                    "已检查公开分享数据，但没有获得可用的视频播放地址。并不代表作品已删除；可能是网页结构调整或访问响应不完整。";
+                parseError("暂未获取视频地址",why,
+                    "作品ID："+(id.isEmpty()?"未识别":id)+"；"+android.text.TextUtils.join("；",traces));
+                return;
+            }
+            mediaUrl=found;
+            send("media",found);
         }catch(Exception e){
-            parseError("解析出错",describeNetwork(e),"阶段："+stage);
+            parseError("解析出错",describeNetwork(e),"阶段："+stage+"；"+android.text.TextUtils.join("；",traces));
         }
     }
     private static void copy(InputStream in,OutputStream out,long max)throws IOException{
