@@ -36,6 +36,7 @@ import java.util.regex.*;
 
 public class MainActivity extends Activity {
     private static final int PICK=41;
+    private static final int PICK_AUDIO=42;
     private static final long LIMIT=500L*1024*1024;
     private FrameLayout frame;
     private WebView ui, browser;
@@ -43,6 +44,8 @@ public class MainActivity extends Activity {
     private volatile String mediaUrl="", sourceUrl="";
     private volatile File video, audio;
     private String incoming="";
+    private final java.util.concurrent.atomic.AtomicBoolean recognitionBusy=new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicBoolean recognitionCancelled=new java.util.concurrent.atomic.AtomicBoolean(false);
     private final String ua="Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36";
 
     @Override public void onCreate(Bundle state) {
@@ -107,15 +110,19 @@ public class MainActivity extends Activity {
             try{File f=extractAudio();String name=name("音频","m4a");save(f,name,"audio/mp4");send("ok","音频已保存："+name);}
             catch(Exception e){fail(e);}
         });}
-        @JavascriptInterface public void transcript(String key){work(()->transcribe(key));}
-        @JavascriptInterface public void saveText(String content){work(()->{
-            try {
-                if(content.trim().isEmpty())throw new IOException("文字稿为空");
-                File f=new File(getCacheDir(),"text_"+System.currentTimeMillis()+".txt");
-                try(OutputStream o=new FileOutputStream(f)){o.write(content.getBytes(StandardCharsets.UTF_8));}
-                String n=name("文字稿","txt");save(f,n,"text/plain");send("ok","文字稿已保存："+n);
-            }catch(Exception e){fail(e);}
+        @JavascriptInterface public void offlineTranscribe(){work(()->transcribeOffline());}
+        @JavascriptInterface public void cancelTranscription(){
+            recognitionCancelled.set(true);
+            send("info","正在停止本地识别……");
+        }
+        @JavascriptInterface public void pickAudio(){runOnUiThread(()->{
+            Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("audio/*");
+            startActivityForResult(i,PICK_AUDIO);
         });}
+        @JavascriptInterface public void saveSrt(String content){work(()->saveTranscriptFile(content,"字幕","srt","application/x-subrip"));}
+        @JavascriptInterface public void saveText(String content){work(()->saveTranscriptFile(content,"文字稿","txt","text/plain"));}
     }
     private static String findUrl(String t){
         if(t==null)return "";
@@ -374,11 +381,11 @@ public class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
-        if(request!=PICK||result!=RESULT_OK||data==null||data.getData()==null)return;
+        if((request!=PICK&&request!=PICK_AUDIO)||result!=RESULT_OK||data==null||data.getData()==null)return;
         Uri uri=data.getData();
         work(()->{
             try {
-                File f=new File(getCacheDir(),"import_"+System.currentTimeMillis()+".mp4");
+                File f=new File(getCacheDir(),"import_"+System.currentTimeMillis()+(request==PICK_AUDIO?".m4a":".mp4"));
                 try(InputStream in=getContentResolver().openInputStream(uri);OutputStream out=new FileOutputStream(f)){
                     if(in==null)throw new IOException("无法读取视频");
                     copy(in,out,LIMIT);
@@ -386,7 +393,8 @@ public class MainActivity extends Activity {
                 MediaExtractor p=new MediaExtractor();
                 try{p.setDataSource(f.getAbsolutePath());if(p.getTrackCount()<1)throw new IOException("不是可用的视频");}
                 finally{p.release();}
-                video=f;audio=null;send("ready","本地视频已导入。可以导出音频或文字稿。");
+                if(request==PICK_AUDIO){audio=f;video=null;send("ready","本地音频已导入，可以离线生成文字稿和字幕。");}
+                else{video=f;audio=null;send("ready","本地视频已导入，可以导出音频或离线生成文字稿。");}
             }catch(Exception e){fail(e);}
         });
     }
@@ -424,37 +432,37 @@ public class MainActivity extends Activity {
             if(mux!=null){if(started)try{mux.stop();}catch(Exception ignored){}mux.release();}
         }
     }
-    private void transcribe(String key){
+    private void saveTranscriptFile(String content,String label,String ext,String mime){
         try{
-            if(key==null||key.trim().isEmpty())throw new IOException("请填写 OpenAI API Key");
-            File f=extractAudio();
-            if(f.length()>24L*1024*1024)throw new IOException("音频超过 24MB，暂不支持转写");
-            send("info","正在云端识别语音，可能产生 API 费用……");
-            String boundary="----DExport"+UUID.randomUUID().toString().replace("-","");
-            HttpURLConnection c=(HttpURLConnection)new URL("https://api.openai.com/v1/audio/transcriptions").openConnection();
-            try{
-                c.setRequestMethod("POST");c.setConnectTimeout(25000);c.setReadTimeout(180000);
-                c.setDoOutput(true);c.setChunkedStreamingMode(65536);
-                c.setRequestProperty("Authorization","Bearer "+key.trim());
-                c.setRequestProperty("Content-Type","multipart/form-data; boundary="+boundary);
-                try(OutputStream out=c.getOutputStream();InputStream in=new FileInputStream(f)){
-                    out.write(("--"+boundary+"\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\ngpt-4o-mini-transcribe\r\n").getBytes(StandardCharsets.UTF_8));
-                    out.write(("--"+boundary+"\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.m4a\"\r\nContent-Type: audio/mp4\r\n\r\n").getBytes(StandardCharsets.UTF_8));
-                    copy(in,out,24L*1024*1024);
-                    out.write(("\r\n--"+boundary+"--\r\n").getBytes(StandardCharsets.UTF_8));
-                }
-                int code=c.getResponseCode();
-                InputStream in=code>=400?c.getErrorStream():c.getInputStream();
-                if(in==null)throw new IOException("识别服务无响应 HTTP "+code);
-                ByteArrayOutputStream b=new ByteArrayOutputStream();
-                try(InputStream stream=in){copy(stream,b,2L*1024*1024);}
-                String raw=b.toString("UTF-8");
-                if(code>=400)throw new IOException("识别失败 HTTP "+code+": "+raw.substring(0,Math.min(raw.length(),130)));
-                String t=new JSONObject(raw).optString("text");
-                if(t.isEmpty())throw new IOException("服务没有返回文字");
-                send("transcript",t);
-            }finally{c.disconnect();}
+            if(content==null||content.trim().isEmpty())throw new IOException(label+"为空，请先完成语音识别");
+            File f=new File(getCacheDir(),"output_"+System.currentTimeMillis()+"."+ext);
+            try(OutputStream o=new FileOutputStream(f)){o.write(content.getBytes(StandardCharsets.UTF_8));}
+            String n=name(label,ext);
+            save(f,n,mime);
+            send("ok",label+"已保存："+n);
         }catch(Exception e){fail(e);}
+    }
+    private void transcribeOffline(){
+        if(!recognitionBusy.compareAndSet(false,true)){
+            send("error","识别任务正在运行，请勿重复提交");
+            return;
+        }
+        recognitionCancelled.set(false);
+        try{
+            File input=video!=null&&video.isFile()?video:audio;
+            if(input==null||!input.isFile())throw new IOException("请先下载视频或导入本地视频/音频");
+            send("info","正在启动离线中文语音识别……");
+            OfflineTranscriber.Result result=OfflineTranscriber.transcribe(this,input,new OfflineTranscriber.Listener(){
+                @Override public void progress(String message){send("info",message);}
+                @Override public boolean cancelled(){return recognitionCancelled.get()||Thread.currentThread().isInterrupted();}
+            });
+            send("transcript",result.text);
+            send("subtitles",result.subtitles);
+            send("ok","本地识别成功："+result.segments+"段，可编辑文字并导出 TXT/SRT。");
+        }catch(java.io.InterruptedIOException e){
+            send("info","识别已取消");
+        }catch(Exception e){fail(e);}
+        finally{recognitionBusy.set(false);}
     }
     private static String name(String label,String ext){
         return label+"_"+new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.CHINA).format(new Date())+"."+ext;
@@ -480,5 +488,5 @@ public class MainActivity extends Activity {
             try(InputStream in=new FileInputStream(source);OutputStream out=new FileOutputStream(new File(dir,n))){copy(in,out,LIMIT+1024);}
         }
     }
-    @Override protected void onDestroy(){if(browser!=null)browser.destroy();if(ui!=null)ui.destroy();super.onDestroy();}
+    @Override protected void onDestroy(){recognitionCancelled.set(true);if(browser!=null)browser.destroy();if(ui!=null)ui.destroy();super.onDestroy();}
 }
