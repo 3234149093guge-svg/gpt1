@@ -153,6 +153,62 @@ function parseCards(text){
 }
 
 
+
+window.zhixuNativeEvent=function(ev){
+ if(!ev||!ev.type)return;
+ if(ev.type==='status'){
+   aiState=ev;
+   if(s.page==='settings'&&!$('#overlay'))render();
+   return;
+ }
+ if(ev.type==='models'){
+   aiModels=ev.models||[];
+   aiState.model=ev.selected||'';
+   if(s.page==='settings'&&!$('#overlay'))render();
+   toast('已获取当前账号可用模型');
+   return;
+ }
+ if(ev.type==='error'){
+   if(ev.operation==='inference')aiPending=null;
+   toast((ev.operation==='inference'?'生成失败：':'ChatGPT：')+(ev.message||'未知错误'));
+   return;
+ }
+ if(ev.type!=='response')return;
+ const pending=aiPending;
+ if(!pending||pending.id!==ev.id)return;
+ aiPending=null;
+ const n=db.notes.find(x=>x.id===pending.noteId);
+ if(pending.action==='note'){
+   if(!n)return;
+   n.history=n.history||[];
+   n.history.push({style:pending.style,content:n[pending.style]||'',at:Date.now()});
+   if(n.history.length>20)n.history.shift();
+   n[pending.style]=ev.text;
+   n.manual=n.manual||{};n.manual[pending.style]=false;
+   save();close();
+   if(s.page==='detail'&&s.id===n.id)render();
+   toast('GPT 笔记已生成并保存');
+ }else if(pending.action==='qa'){
+   const log=$('#chatlog');
+   if(log){
+     log.innerHTML+='<div class="chatbubble">'+esc(ev.text)+'</div>';
+     log.lastElementChild.scrollIntoView({block:'nearest'});
+   }else{
+     toast('GPT 回答已生成，但问答面板已关闭');
+   }
+ }else if(pending.action==='cards'){
+   try{
+     const cards=parseCards(ev.text);
+     if(!cards.length)throw Error('没有有效卡片');
+     for(const c of cards){
+       if(db.cards.some(x=>x.itemId===pending.noteId&&x.q===c.question))continue;
+       db.cards.push({id:uid(),itemId:pending.noteId,q:c.question.slice(0,320),a:c.answer.slice(0,1600),stage:0,due:today()});
+     }
+     save();close();toast('复习卡片已加入今日任务');
+   }catch(error){toast('卡片格式不正确，未保存，请重试')}
+ }
+};
+
 function settings(){
  const st=refreshNativeStatus();
  const info=!nativeAvailable()?'请在 Android 安装包中连接 ChatGPT':st.sharing?'已授权使用会员额度 · '+(st.email||'当前账号'):st.connected?'已登录，尚未授权会员额度':'未连接 ChatGPT';
