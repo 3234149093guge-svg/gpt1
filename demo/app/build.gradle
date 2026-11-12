@@ -6,8 +6,8 @@ android {
     applicationId 'com.zhixu.demo'
     minSdk 26
     targetSdk 34
-    versionCode 1
-    versionName '1.0-preview'
+    versionCode 2
+    versionName '1.2.0-chatgpt-beta'
   }
   compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
