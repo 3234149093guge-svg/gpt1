@@ -152,7 +152,26 @@ function parseCards(text){
  return parsed.filter(x=>x&&typeof x.question==='string'&&typeof x.answer==='string').slice(0,8)
 }
 
-function settings(){return '<header class="top"><h1 class="headerTitle">设置</h1></header><main class="main"><p class="pageCaption">阅读偏好与本地数据</p><div class="libraryHeader"><span class="listlabel">数据管理</span></div><div class="actionlist"><button data-action="backup">导出本地备份　›</button><button data-action="restore">从备份恢复　›</button><button data-action="reset">重置演示资料　›</button></div><div class="libraryHeader" style="margin-top:22px"><span class="listlabel">关于</span></div><div class="actionlist"><button data-action="help">关于此演示版　›</button></div><p class="v2hint">知序 Preview 1.1 · 本地演示版</p><div class="notice" style="margin-top:24px">视频解析、真实语音识别与 AI 推理尚未接入本演示版。你的资料默认保存在本机。</div></main>'+tabnav()}
+
+function settings(){
+ const st=refreshNativeStatus();
+ const info=!nativeAvailable()?'请在 Android 安装包中连接 ChatGPT':st.sharing?'已授权使用会员额度 · '+(st.email||'当前账号'):st.connected?'已登录，尚未授权会员额度':'未连接 ChatGPT';
+ const models=aiModels.length?aiModels.map(m=>'<option value="'+esc(m.slug)+'" '+(st.model===m.slug?'selected':'')+'>'+esc(m.name)+'</option>').join(''):'<option value="'+esc(st.model||'')+'">'+esc(st.model||'请先获取可用模型')+'</option>';
+ return '<header class="top"><h1 class="headerTitle">设置</h1></header><main class="main">'+
+ '<p class="pageCaption">模型连接、本地资料与个人偏好</p>'+
+ '<div class="libraryHeader"><strong style="font-size:14px">ChatGPT</strong><span class="tiny">'+(st.sharing?'已授权':st.connected?'已登录':'未连接')+'</span></div>'+
+ '<div class="airow"><div class="aiicon">◎</div><div class="grow"><div style="font-size:14px;font-weight:700">使用 ChatGPT 会员额度</div><div class="aistatus">'+esc(info)+'</div></div></div>'+
+ (st.sharing?'<div class="label">当前可用模型</div><select class="modelselect" id="aiModel">'+models+'</select><div class="actions"><button class="btn ghost" data-action="refreshModels">刷新模型</button><button class="btn ghost" data-action="signOutGpt">退出登录</button></div>':
+ '<button class="aiaction primary" data-action="connectGpt" '+(!nativeAvailable()?'disabled':'')+'>Continue with ChatGPT</button><p class="aiinfo">使用系统浏览器完成官方授权，不需要 API Key。</p>')+
+ '<button class="link" data-action="usageGpt">查看 ChatGPT 用量与授权　›</button>'+
+ '<div class="libraryHeader" style="margin-top:24px"><span class="listlabel">数据管理</span></div>'+
+ '<div class="actionlist"><button data-action="backup">导出本地备份　›</button><button data-action="restore">从备份恢复　›</button><button data-action="reset">重置演示资料　›</button></div>'+
+ '<div class="libraryHeader" style="margin-top:20px"><span class="listlabel">关于</span></div>'+
+ '<div class="actionlist"><button data-action="help">版本说明　›</button></div>'+
+ '<p class="v2hint">知序 1.2 · ChatGPT 接入测试版</p>'+
+ '<div class="notice" style="margin-top:23px">AI 整理、当前笔记问答和复习卡片可使用真实 GPT；视频解析和转写流程目前仍为演示。</div>'+
+ '</main>'+tabnav()
+}
 function render(){const keep=$('#reading')?.scrollTop||0;app.innerHTML=s.page==='home'?home():s.page==='library'?library():s.page==='detail'?detail():s.page==='review'?review():s.page==='quiz'?quiz():settings();if(s.page==='detail'&&keep>0)$('#reading').scrollTop=keep;}
 function open(id){s.id=id;s.page='detail';s.tab='note';render();}function back(){if(s.page==='detail'){s.page='library';s.id=null}else if(s.page==='quiz')s.page='review';else s.page='library';render()}
 function showModal(title,body){const w=document.createElement('div');w.className='modalwrap';w.id='overlay';w.innerHTML='<div class="modal"><div class="modalHead"><span class="eyebrow">资料操作</span><button class="close" data-action="close">×</button></div><h2>'+title+'</h2>'+body+'</div>';app.appendChild(w)}function close(){$('#overlay')?.remove()}
