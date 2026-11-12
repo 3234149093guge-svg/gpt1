@@ -43,6 +43,7 @@ public class MainActivity extends Activity {
     private final java.util.concurrent.atomic.AtomicBoolean recognitionBusy=new java.util.concurrent.atomic.AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicBoolean recognitionCancelled=new java.util.concurrent.atomic.AtomicBoolean(false);
     private final String ua="Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36";
+    private static final String PUBLIC_SHARE_UA="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -98,6 +99,12 @@ public class MainActivity extends Activity {
                 send("parseBusy","已有解析任务进行中");return;
             }
             work(()->{try{resolveLink(text);}finally{parseBusy.set(false);}});
+        }
+        @JavascriptInterface public void detailFallback(String text){
+            if(!parseBusy.compareAndSet(false,true)){
+                send("parseBusy","仍有任务在执行");return;
+            }
+            work(()->{try{tryPublicDetail(text);}finally{parseBusy.set(false);}});
         }
         @JavascriptInterface public void download(){work(()->downloadVideo());}
         @JavascriptInterface public void pick(){runOnUiThread(()->{
@@ -165,6 +172,8 @@ public class MainActivity extends Activity {
     private String getHtml(String url)throws Exception {
         HttpURLConnection c=connect(url,"text/html,application/xhtml+xml,*/*");
         c.setRequestProperty("Accept-Language","zh-CN,zh;q=0.9");
+        c.setRequestProperty("User-Agent",PUBLIC_SHARE_UA);
+        c.setRequestProperty("Referer","https://www.douyin.com/");
         try{
             int code=c.getResponseCode();
             if(code>=400)throw new IOException("HTTP "+code+"："+Uri.parse(url).getHost());
@@ -174,6 +183,15 @@ public class MainActivity extends Activity {
             try(InputStream in=c.getInputStream()){copy(in,b,6L*1024*1024);}
             return b.toString("UTF-8");
         }finally{c.disconnect();}
+    }
+    private static String pageStructure(String html){
+        if(html==null||html.isEmpty())return "空白响应";
+        boolean router=html.contains("_ROUTER_DATA");
+        boolean video=html.contains("videoInfoRes")||html.contains("play_addr")||html.contains("playAddr");
+        boolean script=html.contains("captcha")||html.contains("secsdk")||html.contains("验证码");
+        String flag=video?"检测到视频数据字段":(router?"只有分享页布局，没有作品详情":"未检测到作品数据");
+        if(script&&!video)flag+="，页面含验证脚本";
+        return flag+"（约"+(html.length()/1024)+"KB）";
     }
     private static String jsonObjectFollowing(String html,String key) {
         int pos=html.indexOf(key);
@@ -218,6 +236,21 @@ public class MainActivity extends Activity {
                 if(!s.isEmpty())return s;
             }
         }
+        org.json.JSONArray legacy=video.optJSONArray("playAddr");
+        if(legacy!=null)for(int i=0;i<legacy.length();i++){
+            JSONObject rendition=legacy.optJSONObject(i);
+            if(rendition!=null){
+                s=rendition.optString("src","");
+                if(https(s))return s;
+                s=rendition.optString("url","");
+                if(https(s))return s;
+            }
+        }
+        String[] fields={"playUrl","play_url","main_url","url"};
+        for(String field:fields){
+            String value=video.optString(field,"");
+            if(https(value)&&(media(value)||field.equals("playUrl")))return value;
+        }
         return "";
     }
     private static String visitMedia(Object obj,int depth){
@@ -259,6 +292,14 @@ public class MainActivity extends Activity {
             String result=visitMedia(new JSONObject(decoded),0);
             if(!result.isEmpty())return result;
         }catch(Exception ignored){}
+        // Other server-rendering formats used by public detail pages.
+        for(String field:new String[]{"__UNIVERSAL_DATA_FOR_REHYDRATION__","_SSR_DATA","__INIT_PROPS__"}){
+            String body=jsonObjectFollowing(html,field);
+            if(body!=null)try{
+                String result=visitMedia(new JSONObject(body),0);
+                if(!result.isEmpty())return result;
+            }catch(Exception ignored){}
+        }
         return "";
     }
     private static String scanDirectVideo(String html){
@@ -289,6 +330,44 @@ public class MainActivity extends Activity {
             j.put("diagnostic",stage);
             send("parseError",j.toString());
         }catch(Exception e){send("error",title+"："+detail);}
+    }
+    private void tryPublicDetail(String text){
+        String link=findUrl(text);
+        String id=videoId(link);
+        if(id.isEmpty()){
+            parseError("无法尝试详情查询","请先粘贴包含有效作品 ID 的分享链接。","NO_VIDEO_ID");
+            return;
+        }
+        send("parseStart","正在尝试公开作品详情（仅这一次请求）…");
+        HttpURLConnection conn=null;
+        try{
+            String url="https://www.douyin.com/aweme/v1/web/aweme/detail/?aweme_id="+id+"&aid=6383";
+            conn=connect(url,"application/json,*/*");
+            conn.setRequestProperty("Referer","https://www.douyin.com/video/"+id);
+            conn.setRequestProperty("Accept-Language","zh-CN,zh;q=0.9");
+            int code=conn.getResponseCode();
+            if(code!=200){
+                parseError("公开详情接口不可用","服务器返回 HTTP "+code+"。这可能是平台要求额外的会话验证。","公开详情接口；作品ID："+id);
+                return;
+            }
+            ByteArrayOutputStream out=new ByteArrayOutputStream();
+            try(InputStream in=conn.getInputStream()){copy(in,out,3L*1024*1024);}
+            String body=out.toString("UTF-8");
+            if(body.trim().isEmpty()){
+                parseError("详情响应为空","公开接口返回空数据；不是视频不存在的证据。","公开详情接口；作品ID："+id);
+                return;
+            }
+            String result=visitMedia(new JSONObject(body),0);
+            if(result.isEmpty()){
+                parseError("详情未包含播放地址","服务器没有返回可保存的视频媒体地址。请改用抖音自身允许的保存方式，再导入本地视频。","公开详情接口；作品ID："+id+"；响应大小："+body.length());
+                return;
+            }
+            sourceUrl="https://www.douyin.com/video/"+id;
+            mediaUrl=result;
+            send("media",result);
+        }catch(Exception e){
+            parseError("公开详情查询失败",describeNetwork(e),"公开详情接口；作品ID："+id);
+        }finally{if(conn!=null)conn.disconnect();}
     }
     private void resolveLink(String text){
         final String link=findUrl(text);
@@ -327,7 +406,7 @@ public class MainActivity extends Activity {
                 }
                 found=structuredMedia(html);
                 if(found.isEmpty())found=scanDirectVideo(html);
-                traces.add("分享链接: "+(found.isEmpty()?"未发现播放地址":"成功"));
+                traces.add("分享链接: "+(found.isEmpty()?pageStructure(html):"成功"));
             }catch(Exception e){
                 traces.add("分享链接: "+describeNetwork(e));
             }
@@ -350,7 +429,7 @@ public class MainActivity extends Activity {
                         String html=getHtml(url);
                         found=structuredMedia(html);
                         if(found.isEmpty())found=scanDirectVideo(html);
-                        traces.add(stage+": "+(found.isEmpty()?"未发现播放地址":"成功"));
+                        traces.add(stage+": "+(found.isEmpty()?pageStructure(html):"成功"));
                     }catch(Exception e){
                         traces.add(stage+": "+describeNetwork(e));
                     }
@@ -359,8 +438,8 @@ public class MainActivity extends Activity {
 
             if(found.isEmpty()){
                 final String why=id.isEmpty()?
-                    "已尝试解析分享链接，但没有识别到作品编号。请尝试重新从抖音复制分享链接。":
-                    "已检查公开分享数据，但没有获得可用的视频播放地址。并不代表作品已删除；可能是网页结构调整或访问响应不完整。";
+                    "分享页未返回作品编号。请重新复制分享链接。":
+                    "公开分享页返回了网页内容，但没有提供可下载的视频详情。可能是平台限制、验证页面或页面结构变化；不能据此判断作品已删除。";
                 parseError("暂未获取视频地址",why,
                     "作品ID："+(id.isEmpty()?"未识别":id)+"；"+android.text.TextUtils.join("；",traces));
                 return;
