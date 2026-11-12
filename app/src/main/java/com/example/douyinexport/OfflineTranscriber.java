@@ -9,8 +9,6 @@ import android.media.MediaFormat;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.vosk.Model;
-import org.vosk.Recognizer;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -46,7 +44,7 @@ public final class OfflineTranscriber {
         }
     }
     private static final int TARGET_RATE=16000;
-    private static final String ASSET_MODEL="model-cn";
+    private static final String ASSET_MODEL="sensevoice-cn";
     private OfflineTranscriber() {}
 
     private static void ensureRunning(Listener l) throws InterruptedIOException {
@@ -81,14 +79,14 @@ public final class OfflineTranscriber {
     }
 
     private static File ensureModel(Context context,Listener listener) throws Exception {
-        File dir=new File(context.getFilesDir(),"asr/model-cn");
+        File dir=new File(context.getFilesDir(),"asr/sensevoice-cn-v1");
         File marker=new File(dir,".ready");
         if(marker.exists())return dir;
-        listener.progress("首次使用：正在安装内置中文识别模型，请确保有足够存储空间……");
+        listener.progress("首次使用：正在解压高精度模型，建议预留至少 600 MB 存储空间……");
         if(dir.exists())removeRecursively(dir);
         try{
             copyAssets(context.getAssets(),ASSET_MODEL,dir,listener);
-            if(!new File(dir,"am").isDirectory()||!new File(dir,"conf").isDirectory()){
+            if(!new File(dir,"model.int8.onnx").isFile()||!new File(dir,"tokens.txt").isFile()){
                 throw new IOException("APK 中未找到完整中文识别模型，请重新安装完整版");
             }
             if(!marker.createNewFile())throw new IOException("无法完成模型安装");
@@ -120,35 +118,22 @@ public final class OfflineTranscriber {
         final long startMs,endMs;
         Segment(String t,long s,long e){text=t;startMs=s;endMs=Math.max(s+200,e);}
     }
-    private static void addResult(List<Segment> segments,String json,long samplesProcessed) {
-        try{
-            JSONObject result=new JSONObject(json);
-            String t=normalize(result.optString("text",""));
-            if(t.isEmpty())return;
-            JSONArray words=result.optJSONArray("result");
-            long s=Math.max(0,(samplesProcessed*1000L/TARGET_RATE)-3000),e=s+1800;
-            if(words!=null&&words.length()>0){
-                JSONObject first=words.optJSONObject(0),last=words.optJSONObject(words.length()-1);
-                if(first!=null)s=Math.max(0,Math.round(first.optDouble("start",0)*1000));
-                if(last!=null)e=Math.max(s+200,Math.round(last.optDouble("end",0)*1000));
-            }
-            segments.add(new Segment(t,s,e));
-        }catch(Exception ignored){}
-    }
-
     private static final class Resampler {
-        final Recognizer recognizer;
+        final SenseVoiceEngine engine;
         final List<Segment> segments;
+        final Listener listener;
         final int rate;
-        long cursor=0,produced=0;
+        long cursor=0,produced=0,chunkStart=0;
         double next=0;
         float previous=0;
-        final byte[] block=new byte[8192];
-        int used=0;
-        Resampler(Recognizer recognizer,List<Segment> segments,int sourceRate){
-            this.recognizer=recognizer;this.segments=segments;rate=sourceRate;
+        // Speech is decoded in a bounded buffer; no huge in-memory WAV allocation.
+        final float[] block=new float[TARGET_RATE*22];
+        int used=0,frameSamples=0,quietFrames=0;
+        float frameSquares=0f,peakEnergy=0.013f;
+        Resampler(SenseVoiceEngine engine,List<Segment> segments,int sourceRate,Listener listener){
+            this.engine=engine;this.segments=segments;this.rate=sourceRate;this.listener=listener;
         }
-        void append(float current){
+        void append(float current)throws Exception{
             if(cursor==0){
                 emit(current);
                 next=(double)rate/TARGET_RATE;
@@ -165,26 +150,43 @@ public final class OfflineTranscriber {
             previous=current;
             cursor++;
         }
-        void emit(float sample){
-            int v=Math.round(Math.max(-1f,Math.min(1f,sample))*32767f);
-            block[used++]=(byte)(v&255);
-            block[used++]=(byte)((v>>8)&255);
+        void emit(float value)throws Exception{
+            float v=Math.max(-1.0f,Math.min(1.0f,value));
+            block[used++]=v;
             produced++;
-            if(used>=block.length)flush();
+            frameSquares+=v*v;frameSamples++;
+            if(frameSamples>=2560){
+                float rms=(float)Math.sqrt(frameSquares/frameSamples);
+                peakEnergy=Math.max(rms,peakEnergy*0.992f);
+                if(rms<Math.max(0.006f,peakEnergy*0.19f))quietFrames++;
+                else quietFrames=0;
+                frameSamples=0;frameSquares=0f;
+                if(used>=TARGET_RATE*5&&quietFrames>=3){flush();return;}
+            }
+            // Force a boundary on speech with no pauses, before model length limits.
+            if(used>=TARGET_RATE*19)flush();
         }
-        void flush(){
+        void flush()throws Exception{
+            ensureRunning(listener);
             if(used==0)return;
-            if(recognizer.acceptWaveForm(block,used))
-                addResult(segments,recognizer.getResult(),produced);
-            used=0;
+            int count=used;
+            float sum=0;
+            for(int i=0;i<count;i++)sum+=block[i]*block[i];
+            float rms=(float)Math.sqrt(sum/Math.max(1,count));
+            long start=chunkStart, end=chunkStart+count;
+            if(count>=TARGET_RATE/2&&rms>=0.0012f){
+                listener.progress("高精度识别中：已处理 "+(start/TARGET_RATE)+" 秒，正在识别下一段……");
+                float[] clip=java.util.Arrays.copyOf(block,count);
+                String text=normalize(engine.recognize(clip));
+                if(!text.isEmpty())segments.add(new Segment(text,
+                    start*1000L/TARGET_RATE,end*1000L/TARGET_RATE));
+            }
+            used=0;chunkStart=end;frameSamples=0;frameSquares=0f;quietFrames=0;peakEnergy=0.013f;
         }
-        void finish(){
-            flush();
-            addResult(segments,recognizer.getFinalResult(),produced);
-        }
+        void finish()throws Exception{flush();}
     }
 
-    private static void addPcm(ByteBuffer data,int channels,int encoding,Resampler rs) throws IOException{
+    private static void addPcm(ByteBuffer data,int channels,int encoding,Resampler rs) throws Exception{
         data.order(ByteOrder.LITTLE_ENDIAN);
         final boolean floating=(encoding==AudioFormat.ENCODING_PCM_FLOAT);
         final int frameBytes=(floating?4:2)*channels;
@@ -198,7 +200,7 @@ public final class OfflineTranscriber {
             rs.append(mono/channels);
         }
     }
-    private static void decode(File media,Recognizer recog,List<Segment> segments,Listener listener) throws Exception{
+    private static void decode(File media,SenseVoiceEngine recog,List<Segment> segments,Listener listener) throws Exception{
         MediaExtractor extractor=new MediaExtractor();
         MediaCodec decoder=null;
         boolean decoderStarted=false;
@@ -253,8 +255,8 @@ public final class OfflineTranscriber {
                     if(encoding!=AudioFormat.ENCODING_PCM_16BIT&&encoding!=AudioFormat.ENCODING_PCM_FLOAT)
                         throw new IOException("不支持的解码音频位深："+encoding);
                     if(sampleRate<8000||sampleRate>192000)throw new IOException("不支持的采样率："+sampleRate);
-                    rs=new Resampler(recog,segments,sampleRate);
-                    listener.progress("中文离线识别已开始："+sampleRate+"Hz、"+channels+"声道");
+                    rs=new Resampler(recog,segments,sampleRate,listener);
+                    listener.progress("SenseVoice 高精度离线识别已开始："+sampleRate+"Hz、"+channels+"声道");
                 }else if(outId>=0){
                     try{
                         if(rs==null){
@@ -263,7 +265,7 @@ public final class OfflineTranscriber {
                             channels=f.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
                             encoding=f.containsKey(MediaFormat.KEY_PCM_ENCODING)?
                                     f.getInteger(MediaFormat.KEY_PCM_ENCODING):AudioFormat.ENCODING_PCM_16BIT;
-                            rs=new Resampler(recog,segments,sampleRate);
+                            rs=new Resampler(recog,segments,sampleRate,listener);
                         }
                         if(info.size>0){
                             ByteBuffer data=decoder.getOutputBuffer(outId);
@@ -300,12 +302,10 @@ public final class OfflineTranscriber {
         if(file==null||!file.isFile())throw new IOException("请先导入或下载视频/音频");
         File modelDir=ensureModel(context,listener);
         ensureRunning(listener);
-        listener.progress("正在加载中文语音模型（首次可能较慢）……");
+        listener.progress("正在加载 SenseVoice 中文高精度模型（内存占用较高）……");
         List<Segment> segments=new ArrayList<>();
-        try(Model model=new Model(modelDir.getAbsolutePath());
-            Recognizer rec=new Recognizer(model,TARGET_RATE)){
-            rec.setWords(true);
-            decode(file,rec,segments,listener);
+        try(SenseVoiceEngine recognizer=new SenseVoiceEngine(modelDir.getAbsolutePath())){
+            decode(file,recognizer,segments,listener);
         }
         ensureRunning(listener);
         if(segments.isEmpty())throw new IOException("没有识别到清晰语音，请确认音轨包含中文人声");
