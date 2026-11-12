@@ -37,6 +37,7 @@ public class MainActivity extends Activity {
     private FrameLayout frame;
     private WebView ui;
     private volatile String mediaUrl="", sourceUrl="";
+    private volatile String lastParsedVideoId="", lastParsedShareLink="";
     private volatile File video, audio;
     private final java.util.concurrent.atomic.AtomicBoolean parseBusy=new java.util.concurrent.atomic.AtomicBoolean(false);
     private String incoming="";
@@ -334,6 +335,7 @@ public class MainActivity extends Activity {
     private void tryPublicDetail(String text){
         String link=findUrl(text);
         String id=videoId(link);
+        if(id.isEmpty()&&link.equals(lastParsedShareLink))id=lastParsedVideoId;
         if(id.isEmpty()){
             parseError("无法尝试详情查询","请先粘贴包含有效作品 ID 的分享链接。","NO_VIDEO_ID");
             return;
@@ -384,6 +386,8 @@ public class MainActivity extends Activity {
             }
             mediaUrl="";
             sourceUrl=link;
+            lastParsedShareLink=link;
+            lastParsedVideoId="";
             send("parseStart","正在解析分享链接…");
             if(!douyin(link)){
                 mediaUrl=link;
@@ -411,6 +415,7 @@ public class MainActivity extends Activity {
                 traces.add("分享链接: "+describeNetwork(e));
             }
 
+            lastParsedVideoId=id;
             // v0.4 used BOTH public share endpoints. v0.5 accidentally removed one;
             // restore the original working fallback without restoring the browser UI.
             if(found.isEmpty()&&!id.isEmpty()){
