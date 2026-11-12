@@ -76,6 +76,15 @@ html,body{background:#e6e6e3;font-family:Roboto,"Noto Sans SC","PingFang SC","Mi
 .tiny{font-size:11px}
 .v2hint{color:#8a9089;font-size:11px;margin:12px 0}
 @media(min-width:600px){.app{border-radius:4px}}
+
+.airow{display:flex;gap:11px;align-items:center;background:#fff;border:1px solid #e5e8e1;border-radius:12px;padding:15px;margin:17px 0}
+.aiicon{width:38px;height:38px;border-radius:10px;border:1px solid #dce3da;display:grid;place-items:center;color:#315c42;font-size:23px}
+.aistatus{font-size:11px;color:#747d74;line-height:1.7;margin-top:4px}
+.modelselect{width:100%;background:#fff;border:1px solid #e1e6dc;border-radius:9px;padding:12px;font-size:13px}
+.aiaction{width:100%;border:1px solid #dbe2d9;background:#fff;padding:13px;border-radius:10px;font-size:13px;font-weight:650}
+.aiaction.primary{background:#293f32;color:#fff;border-color:#293f32}
+.aiinfo{font-size:12px;color:#727f73;line-height:1.75;margin:10px 0}
+
 </style></head><body><div id="app" class="app"></div>
 <script>
 (()=>{'use strict';
@@ -105,6 +114,44 @@ function markdown(md){const lines=esc(md).split('\n');let out='',inList=false;fo
 function detail(){const n=getNote();if(!n)return library();const content=s.tab==='note'?markdown(noteBody(n)):s.tab==='source'?'<p style="white-space:pre-wrap;line-height:1.94">'+esc(n.text||'暂无文字稿')+'</p>':'<div class="notice">演示版尚未连接视频解析模块。你仍可以阅读已保存的文字稿和笔记。</div>';return '<header class="top detailTop"><button class="round" data-action="back" aria-label="返回">'+I('back')+'</button><span style="font-size:14px;font-weight:630">阅读</span><div class="topRight"><button class="round" data-action="fav" aria-label="收藏" style="color:'+(n.fav?'#436250':'#7d837c')+'">'+I('bookmark')+'</button><button class="round" data-action="more" aria-label="更多">'+I('more')+'</button></div></header><main class="main" id="reading"><h1 class="detailTitle">'+esc(n.title)+'</h1><div class="detailMeta">'+esc(n.cat)+'　·　'+esc(n.created)+(n.src?'　·　来源链接':'')+'</div><div class="tabs">'+[['note','笔记'],['source','原稿'],['video','视频']].map(([key,label])=>'<button data-tab="'+key+'" class="'+(s.tab===key?'active':'')+'">'+label+'</button>').join('')+'</div>'+(s.tab==='note'?'<div class="row between" style="margin:0 0 15px"><button class="modeSelect" data-action="styleSheet">'+({brief:'精简笔记',detail:'详细笔记',book:'教材笔记'}[n.style]||'详细笔记')+'　⌄</button><button class="link" data-action="outline">目录　'+I('arrow',14)+'</button></div>':'')+'<div class="markdown" id="notecontent">'+content+'</div><div class="tools"><button class="btn" data-action="edit">'+I('edit')+'编辑</button><button class="btn" data-action="outline">'+I('library')+'目录</button><button class="btn" data-action="chat">'+I('search')+'提问</button><button class="btn" data-action="cards">'+I('review')+'复习卡片</button></div></main>'}
 function review(){const due=db.cards.filter(c=>!c.due||c.due<=today());return '<header class="top"><h1 class="headerTitle">复习</h1><div class="topRight"><button class="round" data-page="library" aria-label="资料">'+I('library')+'</button></div></header><main class="main"><p class="pageCaption">每天一点，记得更牢。</p><div class="statement" style="background:#f0f2ed;margin:19px 0 20px"><div style="font-size:13px;color:#6e756d">今日待复习</div><div style="display:flex;justify-content:space-between;align-items:baseline;padding:9px 0"><strong style="font-size:46px;font-weight:650">'+due.length+'</strong><span class="tiny">张卡片</span></div><button class="btn dark full" data-action="startReview" '+(!due.length?'disabled':'')+'>'+(due.length?'开始复习':'今天已完成')+'</button></div><div class="libraryHeader"><strong style="font-size:14px">复习概况</strong></div><div class="article"><div class="grow"><h3>已创建卡片</h3><div class="caption">从笔记中提取的知识点</div></div><strong>'+db.cards.length+'</strong></div><div class="article"><div class="grow"><h3>累计复习</h3><div class="caption">主动回忆的次数</div></div><strong>'+db.logs.length+'</strong></div><div class="notice" style="margin-top:22px">阅读笔记时，点击下方「复习卡片」，即可把重要知识加入这里。</div></main>'+tabnav()}
 function quiz(){const c=db.cards.find(c=>c.id===s.reviewIds[s.reviewIndex]);if(!c){s.page='review';return review()}const n=db.notes.find(n=>n.id===c.itemId);return '<header class="top"><button class="iconbtn" data-action="endReview">'+I('back')+'</button><span class="tiny">专注复习</span><span class="tiny">'+(s.reviewIndex+1)+' / '+s.reviewIds.length+'</span></header><main class="main"><div style="margin-top:25px" class="eyebrow"></div><div class="progresswrap" style="margin-top:14px"><div class="progressbar" style="width:'+((s.reviewIndex)/s.reviewIds.length*100)+'%"></div></div><div class="cardqa"><span class="eyebrow" style="margin-bottom:20px">问题 '+String(s.reviewIndex+1).padStart(2,'0')+'</span><div class="question">'+esc(c.q)+'</div>'+(s.answer?'<div class="answer"><hr class="sep"><span class="eyebrow">参考答案</span><p>'+esc(c.a)+'</p></div>':'<div class="hint" style="margin-top:23px">先想一想，再查看答案。</div>')+'</div><div class="tiny">'+esc(n?.title||'学习卡片')+'</div><div style="height:22px"></div>'+(s.answer?'<div class="sheetrow"><button class="btn ghost" data-rating="forget">忘记了</button><button class="btn ghost" data-rating="fuzzy">有点模糊</button><button class="btn dark" data-rating="know">记住了</button></div>':'<button class="btn dark full" data-action="reveal">查看参考答案 '+I('arrow',17)+'</button>')+'</main>'}
+
+let aiModels=[],aiPending=null,aiState={connected:false,sharing:false,model:"",busy:false};
+function nativeAvailable(){return !!(window.Android&&window.Android.chatGptStatus)}
+function refreshNativeStatus(){try{if(nativeAvailable())aiState=JSON.parse(window.Android.chatGptStatus())}catch(e){}return aiState}
+function requireAI(){
+ const a=refreshNativeStatus();
+ if(!nativeAvailable()){toast('请使用 Android APK 体验真实 GPT');return false}
+ if(!a.sharing){toast('请先在设置中授权 ChatGPT');s.page='settings';close();render();return false}
+ if(!a.model){toast('请在设置中选择可用模型');s.page='settings';close();render();window.Android.chatGptModels();return false}
+ return true
+}
+function requestAI(action,doc,params={}){
+ if(!requireAI())return;
+ if(aiPending){toast('上一项 AI 任务尚未完成');return}
+ const id=uid();
+ aiPending={id,action,noteId:s.id,style:getNote()?.style||'detail'};
+ const payload={id,action,document:doc,title:getNote()?.title||'',style:aiPending.style,...params};
+ try{window.Android.chatGptInfer(JSON.stringify(payload));toast('GPT 正在生成…')}
+ catch(e){aiPending=null;toast('无法发起模型请求')}
+}
+function openAiNote(){
+ if(!requireAI())return;
+ const n=getNote();if(!n)return;
+ if(n.manual?.[n.style]&&!confirm('当前笔记已有手动修改，旧版本会保留在记录中。确定重新生成？'))return;
+ showModal('用 GPT 整理文字稿','<p class="pageCaption">将当前文字稿发送给 ChatGPT，生成对应风格的学习笔记。</p><div class="notice">仅发送当前资料。原始文字稿始终保留，现有笔记会保存为历史版本。</div><button class="aiaction primary" data-action="runAiNote" style="margin-top:16px">开始整理</button>');
+}
+function parseCards(text){
+ let str=text.trim();
+ const fence=String.fromCharCode(96).repeat(3);
+ if(str.startsWith(fence))str=str.slice(str.indexOf('\n')+1);
+ if(str.endsWith(fence))str=str.slice(0,-3);
+ const a=str.indexOf('['),b=str.lastIndexOf(']');
+ if(a<0||b<a)throw Error('没有返回列表');
+ const parsed=JSON.parse(str.slice(a,b+1));
+ if(!Array.isArray(parsed))throw Error('卡片格式错误');
+ return parsed.filter(x=>x&&typeof x.question==='string'&&typeof x.answer==='string').slice(0,8)
+}
+
 function settings(){return '<header class="top"><h1 class="headerTitle">设置</h1></header><main class="main"><p class="pageCaption">阅读偏好与本地数据</p><div class="libraryHeader"><span class="listlabel">数据管理</span></div><div class="actionlist"><button data-action="backup">导出本地备份　›</button><button data-action="restore">从备份恢复　›</button><button data-action="reset">重置演示资料　›</button></div><div class="libraryHeader" style="margin-top:22px"><span class="listlabel">关于</span></div><div class="actionlist"><button data-action="help">关于此演示版　›</button></div><p class="v2hint">知序 Preview 1.1 · 本地演示版</p><div class="notice" style="margin-top:24px">视频解析、真实语音识别与 AI 推理尚未接入本演示版。你的资料默认保存在本机。</div></main>'+tabnav()}
 function render(){const keep=$('#reading')?.scrollTop||0;app.innerHTML=s.page==='home'?home():s.page==='library'?library():s.page==='detail'?detail():s.page==='review'?review():s.page==='quiz'?quiz():settings();if(s.page==='detail'&&keep>0)$('#reading').scrollTop=keep;}
 function open(id){s.id=id;s.page='detail';s.tab='note';render();}function back(){if(s.page==='detail'){s.page='library';s.id=null}else if(s.page==='quiz')s.page='review';else s.page='library';render()}
