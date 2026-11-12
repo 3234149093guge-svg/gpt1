@@ -1,19 +1,21 @@
-# 知音 · 视频音频文字稿提取器 v0.7
+# 知音 · 视频/音频/文字稿 v0.8 稳定解析修复版
 
-## 解析改进
-- 诊断两个失败作品的公开分享页（7410584369103965490 / 7706005272531330939）时发现：HTML 请求为 HTTP 200，但仅含页面布局 `_ROUTER_DATA`，缺少 `videoInfoRes` 和 `play_addr` 字段。仅依据 HTTP 200 无法认定视频详情可用。
-- 使用更适合移动公开分享页的 User-Agent 和 Referer。
-- 保留原分享页及两个官方公开分享页面作为一次性取数路径；没有 WebView 外站打开和自动跳转。
-- 增加不同 SSR 结构及旧版 `playAddr` 数据字段识别。
-- 解析失败时注明每个请求的网页结构情况：页面空壳、缺少作品详情、视频数据字段是否存在，避免误导用户“作品已删除”。
-- 增加自愿点击的「尝试公开详情」功能，仅单次调用抖音公开详情端点。接口目前可能返回 403 或空数据，无法保证成功；不会规避访问控制，也不存储登录凭据。
-- 原来的「导入本地视频」及 MP4、M4A、SenseVoice INT8 完全离线转写、TXT/SRT 导出保留。
+## 解决两项明确需求
+1. **不要网页打开功能**：不显示“打开网页”按钮，也不加载抖音外站 WebView，不会把用户跳转到不可用的外站。应用仍使用本地 WebView 显示自己的页面，并通过 HTTPS 请求读取公开的视频信息。
+2. **首次安装需要手动反复解析**：一次点击包含 HTTP 会话初始化、共享 CookieStore，以及最多两轮有上限的自动解析。只有首次使用才进行连接预热，后续同一进程沿用 CookieStore。遇 HTTP 429 时停止自动复核，避免继续限流。
 
-## 局限与实测情况
-在 GitHub Actions 的公共网络环境中，两个失败作品的公开移动分享页均无视频详情。该结果不代表在所有地区、设备或帐号下必然失败，但本版本尚无法确认可直接下载这两个视频。**不能将编译成功等同于解析成功。**
+## 技术调整
+- 解析主干延续 v0.4：原分享链接 → iesdouyin 公开分享页 → douyin 公开分享页。
+- 保留 v0.4 Android UA、Referer 处理和网页 HTML 上限，不再使用 v0.7 的 iPhone UA 或额外实验性公开详情 API。
+- HttpURLConnection 使用 java.net.CookieManager 保存响应 Set-Cookie；旧实现仅从 WebView CookieManager 读取 Cookie，普通 HTTP 访问获得的 Cookie 未必能在下次请求复用。这是针对首次安装重复失败的潜在原因采取的修复，**尚无真机确认该原因是唯一根因**。
+- 有限的自动重试（2 轮）代替用户多次点“解析”；不会无限循环，不会强制打开网页。
+- 每次返回无法解析时展示当前原因及对照信息；对没有返回播放数据的作品不宣称已删除。
+- 内置 SenseVoice Small INT8 离线中文转写及视频 MP4、音频 M4A、TXT/SRT 输出完整保留，无任何转写 API Key。
 
-用户可以使用抖音官方提供的「保存本地」功能（如作品允许），再导入 App 提取音轨和离线转文字。不提供破解登录、DRM 或平台反爬验证的功能。
+## 验证状态
+GitHub Actions 只验证 Android 源码编译和 APK 中的本地模型；尚需同机、同网络针对之前会失败的链接做真机 A/B 测试。
+如果平台仅返回验证页面或者需要登录，普通 HTTP 请求无法保证获取视频资源；本 App 不绕过平台访问限制、认证及 DRM。
+安装开发调试 APK 时可能因签名不同需要卸载旧版，请先保存重要文字稿。
 
-## 编译
-GitHub Actions `Build Android APK` → `douyin-export-v07-ssr-diagnostic-apk` → `app-debug.apk`。
-Android 8+；Java17、Kotlin2、AGP8.7.3、Gradle8.9。模型随安装包内置，语音转写不需要 API Key。
+## 构建
+GitHub Actions / Build Android APK / `douyin-export-v08-session-stable-apk`，解压即 `app-debug.apk`。

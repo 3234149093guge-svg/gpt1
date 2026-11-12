@@ -14,24 +14,23 @@ button{font:inherit;font-weight:650;color:#eaf0ff;background:#24364e;border:1px 
 .banner{font-size:12px;color:#b6c7dc;background:#18283b;border-radius:10px;padding:11px 13px;margin:14px 0;word-break:break-word}.banner.error{background:#30212b;color:#ffc1c7}.banner.good{background:#183226;color:#b6f1ca}
 #text{min-height:215px}#srt{min-height:117px}footer{font-size:11px;color:#7f91a8;line-height:1.95;margin-top:22px}
 </style></head><body><main>
-<div class="top"><div class="brand"><span>知</span>知音 · Media</div><div class="edition">V0.7 / OFFLINE</div></div>
+<div class="top"><div class="brand"><span>知</span>知音 · Media</div><div class="edition">V0.8 / STABLE</div></div>
 <div class="eyebrow">VIDEO · AUDIO · TRANSCRIPT</div>
 <h1>一个链接，三种输出。</h1>
-<p class="sub">简洁提取视频和音轨，或转换为可编辑文字稿。解析失败只在当前页面提示，不再打开网页。</p>
+<p class="sub">简洁提取视频和音轨，或转换为可编辑文字稿。连接初始化和有限自动复核都在一次解析任务内完成，不会打开抖音网页。</p>
 <section class="panel">
 <div class="heading"><span class="num">01</span>抖音视频链接</div>
 <textarea id="url" placeholder="在这里粘贴抖音分享内容&#10;https://v.douyin.com/…"></textarea>
 <div class="grid"><button id="paste" class="secondary" onclick="App.paste()">粘贴</button><button id="parse" class="primary" onclick="resolve()">解析视频</button></div>
-<p class="hint">仅在点击时发起解析，不会反复跳转网页。若失败，将显示网页数据是否缺失；“尝试公开详情”需手动点击，可能仍被平台限制。</p>
+<p class="hint">仅在点击时发起解析，不会反复跳转网页。点击一次即可完成会话初始化和最多两轮自动解析。失败会原地显示原因，不再打开抖音网页。</p>
 <div class="state" id="parseState" role="status">
 <div class="state-head"><span class="state-symbol" id="stateIcon">··</span><span class="state-title" id="stateTitle"></span></div>
 <p class="state-description" id="stateDescription"></p>
 <div class="diagnostic" id="stateDiagnostic"></div>
 <div class="progress" id="parseProgress"></div>
 <div class="retry" id="parseFallback" hidden>
-  <button onclick="resolve()">重试分享页</button>
-  <button onclick="detail()">尝试公开详情</button>
-  <button onclick="App.pick()">导入视频</button>
+  <button onclick="resolve()">手动再试</button>
+    <button onclick="App.pick()">导入视频</button>
   <button onclick="copyError()">复制错误</button>
 </div>
 </div>
@@ -79,13 +78,6 @@ function resolve(){
  if(!/https:\/\/\S+/.test(raw)){state('fail','链接格式错误','请从抖音分享菜单复制完整的作品链接。','LINK_FORMAT');return}
  setParsing(true);state('busy','正在读取分享链接','仅执行本次请求，不会打开任何外站网页。','');
  try{App.resolve(raw)}catch(e){setParsing(false);state('fail','无法开始解析',String(e),'JS_BRIDGE')}
-}
-function detail(){
- if(parsing)return;
- const value=el('url').value.trim();
- if(!/https:\/\/\S+/.test(value)){state('fail','缺少分享链接','请粘贴完整分享内容。','URL_FORMAT');return;}
- setParsing(true);state('busy','尝试公开详情','仅进行一次作品详情请求；如果平台要求登录或验证，将直接提示失败。','');
- try{App.detailFallback(value);}catch(e){setParsing(false);state('fail','详情查询失败',String(e),'WEB_API');}
 }
 function copyField(id){el(id).select();document.execCommand('copy');notice('已复制文本','good')}
 function copyError(){const tmp=document.createElement('textarea');tmp.value=diagnostic;document.body.appendChild(tmp);tmp.select();document.execCommand('copy');tmp.remove();notice('错误信息已复制','good')}
