@@ -1,0 +1,43 @@
+name: Publish validated Android APK
+on:
+  push:
+    paths:
+      - .github/workflows/publish-verified-apk.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  release:
+    if: github.repository == '3234149093guge-svg/gpt1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Download exact successful APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: douyin-export-v09-verified-apk
+          run-id: 43329765972
+          github-token: ${{ github.token }}
+          path: verified
+      - name: Validate APK and label
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s verified/app-debug.apk
+          unzip -tqq verified/app-debug.apk
+          unzip -l verified/app-debug.apk | grep 'AndroidManifest.xml'
+          unzip -l verified/app-debug.apk | grep 'sensevoice-cn/model.int8.onnx'
+          cp verified/app-debug.apk Zhiyin_v0.9_verified.apk
+          sha256sum Zhiyin_v0.9_verified.apk
+      - name: Publish prerelease APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v0.9.0-verified Zhiyin_v0.9_verified.apk \
+            --repo "${{ github.repository }}" \
+            --target 6ed84249bc9df5da5dca723406bd92052ab2b3e1 \
+            --title "Zhiyin v0.9 - Douyin resolver verified against supplied link" \
+            --prerelease \
+            --notes "Developer APK. The supplied Douyin share link was fully downloaded and verified by ffprobe (85,880,112 bytes; H.264/AAC, 251.5 s), and the Android source parser was separately compiled and tested on actual response HTML. Android phone installation and runtime have NOT been tested; Douyin availability can vary by session and network. No external webpage UI or transcription API key."
