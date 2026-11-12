@@ -47,6 +47,7 @@ public class MainActivity extends Activity {
     private final java.util.concurrent.atomic.AtomicBoolean recognitionBusy=new java.util.concurrent.atomic.AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicBoolean recognitionCancelled=new java.util.concurrent.atomic.AtomicBoolean(false);
     private final String ua="Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36";
+    private static final String IOS_SHARE_UA="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -166,8 +167,15 @@ public class MainActivity extends Activity {
         return m.find()?m.group(1):"";
     }
     private String getHtml(String url)throws Exception {
+        return getHtml(url,false);
+    }
+    private String getHtml(String url,boolean iphone)throws Exception {
         HttpURLConnection c=connect(url,"text/html,application/xhtml+xml,*/*");
         c.setRequestProperty("Accept-Language","zh-CN,zh;q=0.9");
+        c.setRequestProperty("Referer","https://www.douyin.com/");
+        if(iphone)c.setRequestProperty("User-Agent",IOS_SHARE_UA);
+        c.setConnectTimeout(14000);
+        c.setReadTimeout(26000);
         try{
             int code=c.getResponseCode();
             if(code>=400)throw new IOException("HTTP "+code+"："+Uri.parse(url).getHost());
@@ -314,6 +322,18 @@ public class MainActivity extends Activity {
         if(msg.contains("HTTP 404"))return "HTTP 404 内容不可访问";
         return msg.length()>66?msg.substring(0,66):msg;
     }
+    private static boolean rateLimited(String reason){
+        return reason!=null&&(reason.contains("429")||reason.contains("请求过于频繁"));
+    }
+    private String parseOnePage(String url,boolean iphone,String stage,
+                                java.util.ArrayList<String> diagnostics)throws Exception {
+        String body=getHtml(url,iphone);
+        String found=structuredMedia(body);
+        if(found.isEmpty())found=scanDirectVideo(body);
+        String label=stage+"（"+(iphone?"移动iOS":"安卓")+"）";
+        diagnostics.add(label+": "+(found.isEmpty()?pageState(body):"找到视频地址"));
+        return found;
+    }
     private void resolveLink(String text){
         String link=findUrl(text);
         if(!https(link)){
@@ -331,65 +351,71 @@ public class MainActivity extends Activity {
             send("media",link);
             return;
         }
-        send("parseStart","正在解析视频…");
+        send("parseStart","正在解析分享链接…");
         prepareHttpSession();
-        final java.util.LinkedHashSet<String> failures=new java.util.LinkedHashSet<>();
-        String id=videoId(link);
+        final java.util.ArrayList<String> traces=new java.util.ArrayList<>();
+        String id=videoId(link),found="",lastIssue="";
         boolean limited=false;
-        for(int attempt=1;attempt<=2;attempt++){
-            sourceUrl=link;
-            send("parseProgress","正在读取公开视频信息 · 第 "+attempt+"/2 轮");
-            String html="";
+        final boolean[] agents={false,true}; // Match verified sequence: Android then iOS.
+        for(boolean ios:agents){
+            if(!found.isEmpty()||limited)break;
             try{
-                html=getHtml(link);
+                send("parseProgress","读取分享链接（"+(ios?"移动iOS":"安卓")+"）…");
+                found=parseOnePage(link,ios,"分享链接",traces);
                 if(id.isEmpty())id=videoId(sourceUrl);
-                if(id.isEmpty()){
-                    Matcher ref=Pattern.compile("(?:video/|aweme_id[=:][\"']?)([0-9]{15,22})").matcher(html);
-                    if(ref.find())id=ref.group(1);
-                }
             }catch(Exception e){
-                String desc=readableFailure(e);
-                failures.add("分享链接："+desc);
-                if(desc.contains("429"))limited=true;
+                String reason=readableFailure(e);
+                lastIssue=reason;
+                traces.add("分享链接（"+(ios?"iOS":"安卓")+"）: "+reason);
+                limited=rateLimited(reason);
             }
-            String found=structuredMedia(html);
-            if(found.isEmpty())found=scanDirectVideo(html);
-            if(found.isEmpty()&&!html.isEmpty())failures.add("分享链接："+pageState(html));
-            if(!found.isEmpty()){
-                mediaUrl=found;send("media",found);return;
-            }
-            if(!id.isEmpty()){
-                String[] pages={
-                    "https://www.iesdouyin.com/share/video/"+id+"/",
-                    "https://www.douyin.com/share/video/"+id+"/"
-                };
-                for(int k=0;k<pages.length;k++){
-                    String stage=(k==0?"移动分享页":"网页版分享页");
-                    try{
-                        String body=getHtml(pages[k]);
-                        found=structuredMedia(body);
-                        if(found.isEmpty())found=scanDirectVideo(body);
-                        if(found.isEmpty())failures.add(stage+"："+pageState(body));
-                        else{mediaUrl=found;send("media",found);return;}
-                    }catch(Exception e){
-                        String desc=readableFailure(e);
-                        failures.add(stage+"："+desc);
-                        if(desc.contains("429"))limited=true;
-                    }
+        }
+        if(found.isEmpty()&&!id.isEmpty()&&!limited){
+            // Tested with the supplied short URL on a fresh GitHub Actions runner:
+            // https://www.douyin.com/share/video/{id}/ with iOS UA yielded videoInfoRes.
+            // Always attempt both public hosts with iOS; no web UI or user retries.
+            String[] pages={
+                "https://www.douyin.com/share/video/"+id+"/",
+                "https://www.iesdouyin.com/share/video/"+id+"/"
+            };
+            for(int k=0;k<pages.length&&found.isEmpty()&&!limited;k++){
+                String stage=(k==0?"抖音公开分享页":"移动公开分享页");
+                try{
+                    send("parseProgress","正在尝试"+stage+"…");
+                    found=parseOnePage(pages[k],true,stage,traces);
+                }catch(Exception e){
+                    String reason=readableFailure(e);
+                    lastIssue=reason;
+                    traces.add(stage+"（iOS）: "+reason);
+                    limited=rateLimited(reason);
                 }
             }
-            // A single bounded internal retry replaces repeated manual taps.
-            // Respect explicit rate limiting; never loop on HTTP 429.
-            if(attempt==1&&!limited){
-                send("parseProgress","首次未找到视频信息，正在自动复核一次…");
-                try{Thread.sleep(850);}catch(InterruptedException e){Thread.currentThread().interrupt();break;}
-            }else break;
+            // If all iOS requests are inconclusive, keep the original Android
+            // fallback from v0.4 (no unbounded retry, each URL requested once/UA).
+            for(int k=0;k<pages.length&&found.isEmpty()&&!limited;k++){
+                String stage=(k==0?"抖音公开分享页":"移动公开分享页");
+                try{
+                    send("parseProgress","正在用安卓方式复核"+stage+"…");
+                    found=parseOnePage(pages[k],false,stage,traces);
+                }catch(Exception e){
+                    String reason=readableFailure(e);
+                    lastIssue=reason;
+                    traces.add(stage+"（安卓）: "+reason);
+                    limited=rateLimited(reason);
+                }
+            }
+        }
+        if(!found.isEmpty()){
+            mediaUrl=found;
+            send("media",found);
+            return;
         }
         String reason=limited?
-            "视频平台要求降低请求频率。为避免继续触发限制，本次已停止重试。":
-            "本次已自动完成最多两轮解析，公开分享页仍未返回可下载的视频地址。可能是网络会话尚未就绪、网页数据缺失或平台限制。";
-        parseError("未取得视频地址",reason,
-            "作品 ID："+(id.isEmpty()?"未识别":id)+"；"+android.text.TextUtils.join("；",failures));
+            "服务器已提示访问过于频繁，本次主动停止。":
+            "本次已依次使用两种移动端请求方式，均未获得可用的视频地址；并不代表作品已删除。";
+        if(!lastIssue.isEmpty())reason+=" 最近错误："+lastIssue;
+        parseError("暂未取得视频地址",reason,
+            "作品ID："+(id.isEmpty()?"未识别":id)+"；"+android.text.TextUtils.join("；",traces));
     }
     private static String describeNetwork(Exception e){
         if(e instanceof java.net.UnknownHostException)return "网络域名解析失败，请检查网络";
@@ -423,6 +449,7 @@ public class MainActivity extends Activity {
         HttpURLConnection c=null;
         try{
             c=connect(mediaUrl,"video/mp4,video/*,*/*");
+            c.setRequestProperty("Referer","https://www.douyin.com/");
             if(c.getResponseCode()>=400)throw new IOException("下载 HTTP "+c.getResponseCode());
             String type=c.getContentType();
             if(type!=null&&(type.contains("text/html")||type.contains("application/json")))
