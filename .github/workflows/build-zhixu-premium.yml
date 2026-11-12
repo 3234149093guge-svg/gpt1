@@ -1,7 +1,7 @@
 name: Build Zhixu Premium Preview APK
 on:
   push:
-    branches: [zhixu-premium-demo]
+    branches: [zhixu-premium-demo, zhixu-chatgpt-oauth]
     paths:
       - 'demo/**'
       - '.github/workflows/build-zhixu-premium.yml'
@@ -37,12 +37,12 @@ jobs:
       - run: test -s demo/app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Zhixu-Premium-Preview-APK
+          name: Zhixu-ChatGPT-Preview-APK
           path: demo/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: Zhixu-Layout-Source
+          name: Zhixu-ChatGPT-Preview-HTML
           path: demo/app/src/main/assets/index.html
           retention-days: 30
