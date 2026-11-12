@@ -8,6 +8,7 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -20,11 +21,22 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build debug APK
+      - name: Bundle offline Mandarin Vosk model
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-delay 2 --output model-cn.zip https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip
+          unzip -tqq model-cn.zip
+          unzip -q model-cn.zip -d app/src/main/assets
+          mv app/src/main/assets/vosk-model-small-cn-0.22 app/src/main/assets/model-cn
+          test -d app/src/main/assets/model-cn/am
+          test -d app/src/main/assets/model-cn/conf
+          du -sh app/src/main/assets/model-cn
+      - name: Build offline debug APK
         run: gradle --no-daemon assembleDebug
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: douyin-export-apk
+          name: douyin-export-offline-v03-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
