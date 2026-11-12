@@ -2,13 +2,33 @@
 <style>:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#081121;color:#edf3ff;font:15px/1.6 system-ui,'Noto Sans SC',sans-serif}main{max-width:720px;margin:auto;padding:24px 18px 70px}.tag{color:#8baaff;letter-spacing:2px;font-size:11px}h1{font-size:29px;line-height:1.2;margin:6px 0 12px}p,small{color:#98a9c0}.card{background:#122039;border:1px solid #293d59;padding:17px;border-radius:18px;margin:16px 0}.num{color:#98b4ff;font-size:12px;margin-right:8px}.title{font-weight:750;font-size:17px;margin-bottom:12px}textarea,input{background:#08152a;border:1px solid #3e5270;color:#f7faff;border-radius:11px;font:inherit;padding:12px;width:100%;outline:none}textarea{min-height:100px;resize:vertical}#text{min-height:230px;line-height:1.8}input{min-height:48px}button{border:1px solid #45638a;border-radius:11px;background:#253b5b;color:#fff;min-height:46px;font-weight:650;font-size:14px;padding:9px}button.primary{background:#587df5;border-color:#587df5}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}.tri{grid-template-columns:repeat(3,minmax(0,1fr))}.status{border:1px solid #3c577e;padding:12px;border-radius:12px;margin:12px 0;color:#cadef7;white-space:pre-wrap;overflow-wrap:anywhere}.status.error{color:#ffc6ca;border-color:#aa5157}.status.ok{color:#b7efd8;border-color:#367963}.hint{font-size:12px;color:#95a8c1;margin-top:9px}label{font-size:12px;color:#adc1dd;display:block;margin:12px 0 6px}#media{overflow-wrap:anywhere;font-size:11px;color:#abbcdb}</style></head><body><main>
 <div class="tag">ANDROID · VIDEO / AUDIO / TEXT</div><h1>一个链接，三种导出。</h1><p>抖音分享链接 → 视频、音频和 AI 文字稿。</p>
 <section class="card"><div class="title"><span class="num">01</span>粘贴分享链接</div><textarea id="url" placeholder="https://v.douyin.com/..."></textarea><div class="grid tri"><button onclick="App.paste()">粘贴</button><button class="primary" onclick="resolve()">解析链接</button><button onclick="openPage()">打开网页</button></div><p class="hint">解析不到时可在内置网页里播放，尝试发现可访问的媒体地址。</p><div id="media"></div></section>
-<section class="card"><div class="title"><span class="num">02</span>导出视频与音频</div><div class="grid"><button class="primary" onclick="App.download()">🎬 视频 MP4</button><button onclick="App.audio()">🎧 音频 M4A</button></div><div class="grid"><button onclick="App.pick()">＋ 导入本地视频</button><button onclick="document.getElementById('trans').scrollIntoView()">↓ 文字识别</button></div><p class="hint">视频只能从可访问的媒体地址保存。无法直接下载时，可使用有权处理的本地视频文件。</p></section>
+<section class="card"><div class="title"><span class="num">02</span>导出视频与音频</div><div class="grid"><button class="primary" onclick="App.download()">🎬 视频 MP4</button><button onclick="App.audio()">🎧 音频 M4A</button></div><div class="grid"><button onclick="App.pick()">＋ 导入本地视频</button><button onclick="App.pickAudio()">＋ 导入本地音频</button></div><p class="hint">视频只能从可访问的媒体地址保存。无法直接下载时，可使用有权处理的本地视频文件。</p></section>
 <div id="status" class="status" aria-live="polite">准备就绪。请粘贴视频链接或导入本地视频。</div>
-<section class="card" id="trans"><div class="title"><span class="num">03</span>AI 文字稿</div><label>OpenAI API Key（仅本次使用，不存储）</label><input id="key" type="password" placeholder="sk-..." autocomplete="off"><p class="hint">云端转写需单独 API 额度，会上传音频文件；与 ChatGPT 会员订阅不同。</p><button class="primary" style="width:100%" onclick="App.transcript(document.getElementById('key').value)">✨ 开始语音转文字</button><label>可编辑文字稿</label><textarea id="text" placeholder="识别的逐字稿显示在这里"></textarea><div class="grid"><button class="primary" onclick="App.saveText(document.getElementById('text').value)">保存 TXT</button><button onclick="copyText()">复制文字</button></div></section>
-<p class="hint">保存位置：文件管理 → 下载 → 抖音提取器（Android 10+）。M4A 是从 AAC 音轨直接封装，不是 MP3。部分抖音链接可能无法解析。</p></main><script>
+<section class="card" id="trans">
+<div class="title"><span class="num">03</span>离线中文语音转文字</div>
+<p class="hint">✅ 内置中文模型 · 不用 API Key · 不上传音频 · 无需联网。首次使用需要解压模型到手机存储。</p>
+<div class="grid">
+<button class="primary" onclick="App.offlineTranscribe()">✨ 开始离线识别</button>
+<button onclick="App.cancelTranscription()">停止识别</button>
+</div>
+<p class="hint">长视频会逐段解码识别，可查看实时进度；中文标点为规则补全，识别结果可以手动修改。</p>
+<label>可编辑中文文字稿</label>
+<textarea id="text" placeholder="离线识别得到的文字将显示在这里"></textarea>
+<div class="grid">
+<button class="primary" onclick="App.saveText(document.getElementById('text').value)">保存 TXT</button>
+<button onclick="copyField('text')">复制文字</button>
+</div>
+<label>带时间轴字幕（SRT）</label>
+<textarea id="srt" placeholder="识别完成后生成带时间戳的字幕文件" style="min-height:120px"></textarea>
+<div class="grid">
+<button class="primary" onclick="App.saveSrt(document.getElementById('srt').value)">保存 SRT</button>
+<button onclick="copyField('srt')">复制字幕</button>
+</div>
+</section>
+<p class="hint">保存位置：文件管理 → 下载 → 抖音提取器（Android 10+）。转写完全在本机进行，识别精度受音质、口音和模型限制；需预留额外模型存储空间。M4A 不是 MP3。</p></main><script>
 function resolve(){var v=document.getElementById('url').value;if(v.trim())App.resolve(v);else status('请先粘贴链接',true)}
 function openPage(){App.open(document.getElementById('url').value)}
 function status(s,bad,ok){var el=document.getElementById('status');el.textContent=s;el.className='status'+(bad?' error':ok?' ok':'')}
-function copyText(){var t=document.getElementById('text');t.select();try{document.execCommand('copy');status('已尝试复制文字',false,true)}catch(e){status('请长按文字稿手动复制',true)}}
-window.fromAndroid=function(d){switch(d.type){case 'link':document.getElementById('url').value=d.text;status('已读取链接，点击解析链接');break;case 'media':document.getElementById('media').textContent='候选视频地址：'+d.text;status('已识别候选视频地址，可尝试导出 MP4',false,true);break;case 'transcript':document.getElementById('text').value=d.text;status('识别完成，可以导出 TXT',false,true);break;case 'ready':case 'ok':status(d.text,false,true);break;case 'error':status(d.text,true);break;default:status(d.text)}}
+function copyField(id){var t=document.getElementById(id);t.select();try{document.execCommand('copy');status('已尝试复制文本',false,true)}catch(e){status('请长按文本手动复制',true)}}
+window.fromAndroid=function(d){switch(d.type){case 'link':document.getElementById('url').value=d.text;status('已读取链接，点击解析链接');break;case 'media':document.getElementById('media').textContent='候选视频地址：'+d.text;status('已识别候选视频地址，可尝试导出 MP4',false,true);break;case 'transcript':document.getElementById('text').value=d.text;status('文字稿已生成',false,true);break;case 'subtitles':document.getElementById('srt').value=d.text;status('带时间轴字幕已生成',false,true);break;case 'ready':case 'ok':status(d.text,false,true);break;case 'error':status(d.text,true);break;default:status(d.text)}}
 </script></body></html>
