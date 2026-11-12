@@ -9,8 +9,8 @@ android {
     applicationId 'com.example.douyinexport'
     minSdk 26
     targetSdk 34
-    versionCode 8
-    versionName '0.8.0-classic-session'
+    versionCode 9
+    versionName '0.9.0-verified-dual-mobile'
     ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }
   }
   compileOptions {

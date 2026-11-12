@@ -14,15 +14,15 @@ button{font:inherit;font-weight:650;color:#eaf0ff;background:#24364e;border:1px 
 .banner{font-size:12px;color:#b6c7dc;background:#18283b;border-radius:10px;padding:11px 13px;margin:14px 0;word-break:break-word}.banner.error{background:#30212b;color:#ffc1c7}.banner.good{background:#183226;color:#b6f1ca}
 #text{min-height:215px}#srt{min-height:117px}footer{font-size:11px;color:#7f91a8;line-height:1.95;margin-top:22px}
 </style></head><body><main>
-<div class="top"><div class="brand"><span>知</span>知音 · Media</div><div class="edition">V0.8 / STABLE</div></div>
+<div class="top"><div class="brand"><span>知</span>知音 · Media</div><div class="edition">V0.9 / VERIFIED</div></div>
 <div class="eyebrow">VIDEO · AUDIO · TRANSCRIPT</div>
 <h1>一个链接，三种输出。</h1>
-<p class="sub">简洁提取视频和音轨，或转换为可编辑文字稿。连接初始化和有限自动复核都在一次解析任务内完成，不会打开抖音网页。</p>
+<p class="sub">简洁提取视频和音轨，或转换为可编辑文字稿。安卓与 iPhone 两种公开请求方式自动衔接，一次点击完成；不需要打开抖音网页。</p>
 <section class="panel">
 <div class="heading"><span class="num">01</span>抖音视频链接</div>
 <textarea id="url" placeholder="在这里粘贴抖音分享内容&#10;https://v.douyin.com/…"></textarea>
 <div class="grid"><button id="paste" class="secondary" onclick="App.paste()">粘贴</button><button id="parse" class="primary" onclick="resolve()">解析视频</button></div>
-<p class="hint">仅在点击时发起解析，不会反复跳转网页。点击一次即可完成会话初始化和最多两轮自动解析。失败会原地显示原因，不再打开抖音网页。</p>
+<p class="hint">仅在点击时发起解析，不会反复跳转网页。一次点击自动完成多个已验证的公开分享来源，不打开抖音网页。</p>
 <div class="state" id="parseState" role="status">
 <div class="state-head"><span class="state-symbol" id="stateIcon">··</span><span class="state-title" id="stateTitle"></span></div>
 <p class="state-description" id="stateDescription"></p>
