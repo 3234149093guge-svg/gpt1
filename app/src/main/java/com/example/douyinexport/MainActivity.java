@@ -39,6 +39,10 @@ public class MainActivity extends Activity {
     private volatile String mediaUrl="", sourceUrl="";
     private volatile File video, audio;
     private final java.util.concurrent.atomic.AtomicBoolean parseBusy=new java.util.concurrent.atomic.AtomicBoolean(false);
+    private static final java.net.CookieManager HTTP_COOKIES =
+        new java.net.CookieManager(null,java.net.CookiePolicy.ACCEPT_ALL);
+    private final Object initLock=new Object();
+    private volatile boolean sessionPrepared=false;
     private String incoming="";
     private final java.util.concurrent.atomic.AtomicBoolean recognitionBusy=new java.util.concurrent.atomic.AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicBoolean recognitionCancelled=new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -46,6 +50,7 @@ public class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        java.net.CookieHandler.setDefault(HTTP_COOKIES);
         getWindow().setStatusBarColor(Color.rgb(8,17,33));
         frame=new FrameLayout(this);
         ui=new WebView(this);
@@ -151,8 +156,6 @@ public class MainActivity extends Activity {
         c.setRequestProperty("User-Agent",ua);
         c.setRequestProperty("Accept",accept);
         if(!sourceUrl.isEmpty())c.setRequestProperty("Referer",sourceUrl);
-        String cookies=CookieManager.getInstance().getCookie(url);
-        if(cookies!=null)c.setRequestProperty("Cookie",cookies);
         return c;
     }
     // Short links often redirect to a browser-rendered page with no plain MP4 URL.
@@ -269,17 +272,74 @@ public class MainActivity extends Activity {
         }
         return "";
     }
-    private void resolveLink(String text){
-        try{
-            final String link=findUrl(text);
-            if(!https(link))throw new IOException("请粘贴有效的 HTTPS 分享链接");
-            mediaUrl="";video=null;audio=null;sourceUrl=link;
-            if(!douyin(link)){
-                if(media(link)){mediaUrl=link;send("media",link);return;}
-                throw new IOException("仅支持抖音分享链接或视频直链");
+    private void prepareHttpSession(){
+        if(sessionPrepared)return;
+        synchronized(initLock){
+            if(sessionPrepared)return;
+            send("parseProgress","正在初始化视频请求会话（仅首次）…");
+            HttpURLConnection c=null;
+            try{
+                c=connect("https://www.douyin.com/","text/html,*/*");
+                c.setConnectTimeout(8000);
+                c.setReadTimeout(9000);
+                int status=c.getResponseCode();
+                if(status>=200&&status<400){
+                    // Ensure ordinary HTTP session cookies are applied by CookieHandler.
+                    try(InputStream in=c.getInputStream()){
+                        if(in!=null)in.read(new byte[512]);
+                    }
+                }
+            }catch(Exception ignored){
+                // A blocked home page must not prevent a valid share page.
+            }finally{
+                if(c!=null)c.disconnect();
+                sessionPrepared=true;
             }
-            send("parseStart","使用经典版解析：读取分享链接…");
-            String id=videoId(link),html="";
+        }
+    }
+    private static String pageState(String html){
+        if(html==null||html.isEmpty())return "空响应";
+        if(html.contains("videoInfoRes")||html.contains("play_addr")||html.contains("playAddr"))return "检测到媒体字段";
+        if(html.contains("_ROUTER_DATA"))return "网页有布局但未提供视频数据";
+        if(html.length()<4096)return "返回内容过少";
+        return "未找到视频数据字段";
+    }
+    private static String readableFailure(Exception e){
+        if(e instanceof java.net.UnknownHostException)return "DNS 不可用";
+        if(e instanceof java.net.SocketTimeoutException)return "请求超时";
+        if(e instanceof java.net.ConnectException)return "网络连接失败";
+        String msg=e.getMessage()==null?"":e.getMessage();
+        if(msg.contains("HTTP 429"))return "HTTP 429 请求过于频繁";
+        if(msg.contains("HTTP 403"))return "HTTP 403 拒绝访问";
+        if(msg.contains("HTTP 404"))return "HTTP 404 内容不可访问";
+        return msg.length()>66?msg.substring(0,66):msg;
+    }
+    private void resolveLink(String text){
+        String link=findUrl(text);
+        if(!https(link)){
+            parseError("链接格式错误","请复制完整的抖音 HTTPS 分享链接。","FORMAT");
+            return;
+        }
+        if(!douyin(link)&&!media(link)){
+            parseError("不支持的链接","当前仅支持抖音分享链接或直接视频地址。","UNSUPPORTED_DOMAIN");
+            return;
+        }
+        mediaUrl="";
+        sourceUrl=link;
+        if(!douyin(link)){
+            mediaUrl=link;
+            send("media",link);
+            return;
+        }
+        send("parseStart","正在解析视频…");
+        prepareHttpSession();
+        final java.util.LinkedHashSet<String> failures=new java.util.LinkedHashSet<>();
+        String id=videoId(link);
+        boolean limited=false;
+        for(int attempt=1;attempt<=2;attempt++){
+            sourceUrl=link;
+            send("parseProgress","正在读取公开视频信息 · 第 "+attempt+"/2 轮");
+            String html="";
             try{
                 html=getHtml(link);
                 if(id.isEmpty())id=videoId(sourceUrl);
@@ -287,32 +347,49 @@ public class MainActivity extends Activity {
                     Matcher ref=Pattern.compile("(?:video/|aweme_id[=:][\"']?)([0-9]{15,22})").matcher(html);
                     if(ref.find())id=ref.group(1);
                 }
-            }catch(Exception e){send("parseProgress","分享链接未直接返回视频，尝试备用公开分享页…");}
-            String result=structuredMedia(html);
-            if(result.isEmpty()&&!id.isEmpty()){
-                send("parseProgress","正在检查经典版的两个备用分享来源…");
+            }catch(Exception e){
+                String desc=readableFailure(e);
+                failures.add("分享链接："+desc);
+                if(desc.contains("429"))limited=true;
+            }
+            String found=structuredMedia(html);
+            if(found.isEmpty())found=scanDirectVideo(html);
+            if(found.isEmpty()&&!html.isEmpty())failures.add("分享链接："+pageState(html));
+            if(!found.isEmpty()){
+                mediaUrl=found;send("media",found);return;
+            }
+            if(!id.isEmpty()){
                 String[] pages={
                     "https://www.iesdouyin.com/share/video/"+id+"/",
                     "https://www.douyin.com/share/video/"+id+"/"
                 };
-                for(String page:pages){
+                for(int k=0;k<pages.length;k++){
+                    String stage=(k==0?"移动分享页":"网页版分享页");
                     try{
-                        String body=getHtml(page);
-                        result=structuredMedia(body);
-                        if(!result.isEmpty())break;
-                        if(result.isEmpty())result=scanDirectVideo(body);
-                        if(!result.isEmpty())break;
-                    }catch(Exception ignored){}
+                        String body=getHtml(pages[k]);
+                        found=structuredMedia(body);
+                        if(found.isEmpty())found=scanDirectVideo(body);
+                        if(found.isEmpty())failures.add(stage+"："+pageState(body));
+                        else{mediaUrl=found;send("media",found);return;}
+                    }catch(Exception e){
+                        String desc=readableFailure(e);
+                        failures.add(stage+"："+desc);
+                        if(desc.contains("429"))limited=true;
+                    }
                 }
             }
-            if(result.isEmpty())result=scanDirectVideo(html);
-            if(!result.isEmpty()){
-                mediaUrl=result;
-                send("media",result);
-                return;
-            }
-            parseError("经典解析未取得视频地址","已按 v0.4 原样检查分享链接及两条备用公开分享页，但服务器未提供可直接保存的视频地址。不会打开网页。","经典解析 · 作品ID："+(id.isEmpty()?"未识别":id));
-        }catch(Exception e){parseError("经典解析异常",describeNetwork(e),"v0.4 回退解析");}
+            // A single bounded internal retry replaces repeated manual taps.
+            // Respect explicit rate limiting; never loop on HTTP 429.
+            if(attempt==1&&!limited){
+                send("parseProgress","首次未找到视频信息，正在自动复核一次…");
+                try{Thread.sleep(850);}catch(InterruptedException e){Thread.currentThread().interrupt();break;}
+            }else break;
+        }
+        String reason=limited?
+            "视频平台要求降低请求频率。为避免继续触发限制，本次已停止重试。":
+            "本次已自动完成最多两轮解析，公开分享页仍未返回可下载的视频地址。可能是网络会话尚未就绪、网页数据缺失或平台限制。";
+        parseError("未取得视频地址",reason,
+            "作品 ID："+(id.isEmpty()?"未识别":id)+"；"+android.text.TextUtils.join("；",failures));
     }
     private static String describeNetwork(Exception e){
         if(e instanceof java.net.UnknownHostException)return "网络域名解析失败，请检查网络";
