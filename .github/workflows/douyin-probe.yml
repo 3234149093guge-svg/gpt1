@@ -1,32 +1,44 @@
 name: Probe Douyin public share data
 on:
   push:
-    paths:
-      - .github/workflows/douyin-probe.yml
+    paths: [.github/workflows/douyin-probe.yml]
   workflow_dispatch:
 jobs:
   inspect-public-html:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Inspect HTML metadata only (no media downloads)
+      - name: Verify metadata markers for two video IDs
         shell: bash
         run: |
           python3 - <<'PY'
-          import urllib.request, urllib.error, re
-          id="7410584369103965490"
-          ios="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
-          android="Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
-          for agent_name,agent in [('iPhone',ios),('Android',android)]:
+          import urllib.request, urllib.error, json, re
+          ids=['7410584369103965490','7706005272531330939']
+          agents={
+           'iPhone':'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+           'Android':'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36'
+          }
+          def brief(u,ua):
+            try:
+              req=urllib.request.Request(u,headers={'User-Agent':ua,'Accept':'text/html,application/xhtml+xml,*/*','Accept-Language':'zh-CN,zh;q=0.9','Referer':'https://www.douyin.com/'})
+              with urllib.request.urlopen(req,timeout=12) as rsp:
+                raw=rsp.read(6000000)
+                s=raw.decode('utf-8','replace')
+                markers={m:(m in s) for m in ['videoInfoRes','_ROUTER_DATA','_SSR_DATA','__UNIVERSAL_DATA_FOR_REHYDRATION__','play_addr','playAddr','filter_list','captcha','验证','login','登录']}
+                m=re.search(r'window\._ROUTER_DATA\s*=\s*(\{)',s)
+                keys=[]
+                if m:
+                  try:
+                    obj=json.JSONDecoder().raw_decode(s[m.start(1):])[0]
+                    keys=list(obj.keys())[:8]
+                    loader=obj.get('loaderData') or {}
+                    keys+=['loader='+','.join(loader.keys())[:100]]
+                  except Exception as exc:keys=['jsonerror='+type(exc).__name__]
+                return 'code=%s size=%s endhost=%s markers=%s keys=%s'%(rsp.status,len(raw),urllib.request.urlparse(rsp.url).hostname,markers,keys)
+            except Exception as e:return type(e).__name__+': '+str(e)[:90]
+          for id in ids:
             for host in ['www.douyin.com','www.iesdouyin.com']:
-              url=f'https://{host}/share/video/{id}/'
-              try:
-                req=urllib.request.Request(url,headers={'User-Agent':agent,'Accept':'text/html,application/xhtml+xml,*/*','Accept-Language':'zh-CN,zh;q=0.9','Referer':'https://www.douyin.com/'})
-                with urllib.request.urlopen(req,timeout=17) as resp:
-                  data=resp.read(6000000)
-                  text=data.decode('utf-8','replace')
-                  flags={x:(x in text) for x in ['_ROUTER_DATA','videoInfoRes','play_addr','playAddr','__UNIVERSAL_DATA_FOR_REHYDRATION__','_SSR_DATA','ArgusSecurityPlugin','RENDER_DATA','<video']}
-                  print(f'{agent_name} {host} HTTP={resp.status} length={len(data)} urlhost={urllib.request.urlparse(resp.url).hostname} flags={flags}',flush=True)
-              except Exception as e:
-                print(f'{agent_name} {host} error={type(e).__name__}: {str(e)[:150]}',flush=True)
+              u=f'https://{host}/share/video/{id}/'
+              print(id,host,'ios',brief(u,agents['iPhone']),flush=True)
+            print(id,'www.douyin.com video Android',brief(f'https://www.douyin.com/video/{id}',agents['Android']),flush=True)
           PY
