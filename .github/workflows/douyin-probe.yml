@@ -33,6 +33,8 @@ jobs:
                     keys=list(obj.keys())[:8]
                     loader=obj.get('loaderData') or {}
                     keys+=['loader='+','.join(loader.keys())[:100]]
+                    keys+=['pageKeys='+','.join((loader.get('video_(id)/page') or {}).keys())[:180]]
+                    keys+=['errors='+str(obj.get('errors'))[:180]]
                   except Exception as exc:keys=['jsonerror='+type(exc).__name__]
                 return 'code=%s size=%s endhost=%s markers=%s keys=%s'%(rsp.status,len(raw),urllib.request.urlparse(rsp.url).hostname,markers,keys)
             except Exception as e:return type(e).__name__+': '+str(e)[:90]
