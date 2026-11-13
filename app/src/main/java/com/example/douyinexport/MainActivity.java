@@ -160,6 +160,24 @@ public class MainActivity extends Activity {
         Matcher m=Pattern.compile("(?:/video/|/share/video/|[?&](?:modal_id|aweme_id)=)([0-9]{15,22})").matcher(text);
         return m.find()?m.group(1):"";
     }
+    // This is a strictly optional compatibility fallback. Keep the classic
+    // v0.4 Android request unchanged and try iPhone SSR only after it fails.
+    private String getIphoneShareHtml(String url)throws Exception {
+        HttpURLConnection c=connect(url,"text/html,application/xhtml+xml,*/*");
+        c.setRequestProperty("User-Agent",
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1");
+        c.setRequestProperty("Referer","https://www.douyin.com/");
+        c.setRequestProperty("Accept-Language","zh-CN,zh;q=0.9");
+        try{
+            int code=c.getResponseCode();
+            if(code>=400)throw new IOException("HTTP "+code);
+            String target=c.getURL().toString();
+            if(douyin(target))sourceUrl=target;
+            ByteArrayOutputStream b=new ByteArrayOutputStream();
+            try(InputStream in=c.getInputStream()){copy(in,b,6L*1024*1024);}
+            return b.toString("UTF-8");
+        }finally{c.disconnect();}
+    }
     private String getHtml(String url)throws Exception {
         HttpURLConnection c=connect(url,"text/html,application/xhtml+xml,*/*");
         c.setRequestProperty("Accept-Language","zh-CN,zh;q=0.9");
@@ -309,6 +327,20 @@ public class MainActivity extends Activity {
                     }
                 }
                 if(result.isEmpty())result=scanDirectVideo(html);
+                if(result.isEmpty()&&!id.isEmpty()){
+                    // Verified on the supplied video: iPhone public SSR can
+                    // include videoInfoRes when Android pages are layout-only.
+                    send("info","经典版未找到视频，检查移动分享兼容地址……");
+                    try{
+                        String mobile=getIphoneShareHtml("https://www.iesdouyin.com/share/video/"+id+"/");
+                        result=structuredMedia(mobile);
+                        if(result.isEmpty())result=scanDirectVideo(mobile);
+                        if(!result.isEmpty()){
+                            // A stable referer was used for the validated MP4 sample.
+                            sourceUrl="https://www.douyin.com/";
+                        }
+                    }catch(Exception ignored){}
+                }
                 if(!result.isEmpty()){
                     mediaUrl=result;
                     send("media",result);
