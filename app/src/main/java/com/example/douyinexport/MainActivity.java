@@ -308,8 +308,14 @@ public class MainActivity extends Activity {
         if(!douyin(link)){
             mediaUrl=link;
             send("found","识别到视频直链，准备检查");
-            checkUrl(link);
-            send("ready","可下载视频已验证");
+            try{
+                checkUrl(link);
+                send("ready","可下载视频已验证");
+            }catch(Exception e){
+                mediaUrl="";
+                log("视频直链验证失败："+message(e));
+                send("error","无法获取有效 MP4："+message(e));
+            }
             return;
         }
         // The short link can reveal the content ID while initializing cookies.
