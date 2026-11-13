@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#f7f7f5">
-<title>知音 · 视频测试版</title>
+<title>知音 · Qwen3-ASR 离线识别</title>
 <style>
 :root{color-scheme:light;--paper:#f7f7f5;--ink:#202326;--muted:#7d858d;--hair:#dddeda;--panel:#fff;--blue:#343fc8}
 *{box-sizing:border-box}
@@ -46,16 +46,16 @@ button:disabled{opacity:.47}
 </style>
 </head>
 <body><main>
-<header class="top"><div class="brand"><b>知</b>知音</div><div class="vers">VIDEO LAB / 0.6</div></header>
-<div class="overline">LINK TO VIDEO · ANDROID</div>
-<h1>先把视频下载做好。</h1>
-<p class="sub">本版本只验证一件事：抖音分享链接 → 有效 MP4 → 手机保存。没有语音转文字、音频提取或外部网页打开功能。</p>
+<header class="top"><div class="brand"><b>知</b>知音</div><div class="vers">QWEN3 ASR / 0.7</div></header>
+<div class="overline">OFFLINE ASR · VIDEO · TRANSCRIPT</div>
+<h1>视频与高精度文字稿。</h1>
+<p class="sub">视频支持抖音链接解析或导入本地文件；Qwen3-ASR-0.6B INT8 在手机本地识别，音频不会上传。首次需要单独下载模型。</p>
 <section class="panel">
  <div class="t">分享链接 <span class="no">01 / INPUT</span></div>
  <textarea id="input" placeholder="粘贴抖音复制的分享内容，例如：&#10;https://v.douyin.com/NRlGp9fKoMs/"></textarea>
  <div class="row"><button id="paste" onclick="App.paste()">从剪贴板粘贴</button><button id="parse" class="primary" onclick="start()">解析视频</button></div>
  <div class="row"><button onclick="App.sample()">载入水煮肉片测试链接</button><button onclick="clearInput()">清除</button></div>
- <p class="footnote">不会打开抖音网页；解析最多自动复核一次。只有确认返回 MP4 数据后才允许下载。</p>
+ <p class="footnote">不会打开抖音网页；如平台未返回公开视频数据，可从手机导入已保存的视频后转文字。</p>
  <div class="outcome" id="outcome" hidden>
   <div class="result-title"><i></i><span id="resultTitle">正在请求</span></div>
   <p class="result-desc" id="resultDesc"></p>
@@ -64,11 +64,43 @@ button:disabled{opacity:.47}
  </div>
  <div class="message" id="message"></div>
 </section>
+
+<section class="panel" id="modelPanel">
+ <div class="t">本地语音模型 <span class="no">02 / MODEL</span></div>
+ <div class="result-title"><i id="modelDot"></i><span id="modelStatus">正在检查 Qwen3-ASR 模型…</span></div>
+ <p class="footnote">Qwen3-ASR-0.6B INT8 · 模型压缩包约 879 MB，解压约 1 GB。下载安装后完全离线；建议 8 GB 以上 RAM，并预留至少 2.4 GB 存储空间。</p>
+ <div class="row">
+  <button id="modelInstall" class="primary" onclick="App.installModel()">下载并安装模型</button>
+  <button onclick="App.importModel()">导入已有模型包</button>
+ </div>
+ <p class="message" id="modelMessage"></p>
+</section>
+<section class="panel" id="asrPanel">
+ <div class="t">离线语音转文字 <span class="no">03 / TRANSCRIPT</span></div>
+ <p class="footnote" style="margin-top:0">可直接使用刚下载的 MP4，也可以选择本地视频或音频文件。按语音停顿分段识别；字幕时间为分段近似值。</p>
+ <div class="row">
+  <button onclick="App.pickMedia()">选择本地音视频</button>
+  <button id="startAsr" class="primary" onclick="startAsr()">开始离线识别</button>
+ </div>
+ <div class="row">
+  <button onclick="App.cancelAsr()">停止识别</button>
+  <button onclick="copyTranscript()">复制文字稿</button>
+ </div>
+ <div class="message" id="asrStatus">尚未导入音视频。识别全程不上传文件。</div>
+ <label class="small" for="transcript" style="display:block;margin:16px 0 6px">可编辑中文文字稿</label>
+ <textarea id="transcript" placeholder="识别后将在这里显示文字稿…" style="min-height:220px"></textarea>
+ <div class="row">
+  <button onclick="App.exportTxt($('transcript').value)">导出 TXT</button>
+  <button onclick="App.exportSrt($('subtitles').value)">导出 SRT</button>
+ </div>
+ <label class="small" for="subtitles" style="display:block;margin:14px 0 6px">分段字幕（SRT）</label>
+ <textarea id="subtitles" placeholder="自动生成 SRT 字幕…" style="min-height:130px"></textarea>
+</section>
 <section class="panel">
- <div class="logHead"><div class="t" style="margin:0">解析诊断 <span class="no">02 / DEBUG</span></div><button class="mini" onclick="App.copyLogs()">复制日志</button></div>
+ <div class="logHead"><div class="t" style="margin:0">解析诊断 <span class="no">04 / DEBUG</span></div><button class="mini" onclick="App.copyLogs()">复制日志</button></div>
  <div class="log" id="log">尚未开始解析。</div>
 </section>
-<p class="warning">视频仅供你有权访问和保存的用途。当前无外部服务、无账号登录、无语音识别模型；视频解析仍需要互联网，且可能受作品权限和平台访问策略限制。</p>
+<p class="warning">视频仅供你有权访问和保存的用途。无第三方转写 API、无需账号或 API Key。模型安装需要联网；安装完成后，本地音视频转写可完全离线。视频链接解析受平台权限和网络环境影响。</p>
 </main>
 <script>
 let running=false;const $=x=>document.getElementById(x);
@@ -94,6 +126,17 @@ function downloadVideo(){
  toggleBusy(true);$('save').hidden=true;show('load','正在下载','将验证视频轨道，成功后保存至手机「下载」目录');
  App.download();
 }
+function startAsr(){
+ if(running)return;
+ toggleBusy(true);
+ $('asrStatus').textContent='正在加载模型并准备音频解码…';
+ App.transcribe();
+}
+function copyTranscript(){
+ const el=$('transcript');el.select();
+ try{document.execCommand('copy');$('asrStatus').textContent='文字稿已复制';}
+ catch(e){$('asrStatus').textContent='复制失败，请长按文字手动复制';}
+}
 window.fromAndroid=d=>{
  switch(d.type){
  case 'link':$('input').value=d.text;$('outcome').hidden=true;break;
@@ -107,6 +150,17 @@ window.fromAndroid=d=>{
  case 'error':toggleBusy(false);show('bad','处理未成功',d.text);break;
  case 'idle':toggleBusy(false);break;
  case 'message':$('message').textContent=d.text;break;
+ case 'modelMissing':$('modelStatus').textContent='未安装 · 下载后本地运行';$('modelDot').style.background='#bd8f46';break;
+ case 'modelProgress':toggleBusy(true);$('modelStatus').textContent='安装中…';$('modelMessage').textContent=d.text;break;
+ case 'modelReady':toggleBusy(false);$('modelStatus').textContent='已安装 · 完全离线可用';$('modelDot').style.background='#328567';$('modelMessage').textContent=d.text;$('modelInstall').textContent='模型已安装';break;
+ case 'modelError':toggleBusy(false);$('modelMessage').textContent=d.text;$('modelStatus').textContent='安装失败，可重试';break;
+ case 'mediaSelected':$('asrStatus').textContent=d.text;break;
+ case 'asrProgress':toggleBusy(true);$('asrStatus').textContent=d.text;break;
+ case 'asrReady':toggleBusy(false);$('asrStatus').textContent=d.text;break;
+ case 'asrError':toggleBusy(false);$('asrStatus').textContent=d.text;break;
+ case 'transcript':$('transcript').value=d.text;break;
+ case 'subtitles':$('subtitles').value=d.text;break;
+ case 'asrSaved':$('asrStatus').textContent=d.text;break;
  }
 }
 </script></body></html>
