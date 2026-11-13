@@ -1,0 +1,47 @@
+name: Verify user sample Douyin download
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/verify-sample-video.yml
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Install tools
+        run: |
+          python3 -m pip install -q requests yt-dlp
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg >/dev/null
+      - name: Test actual user share link and download
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import requests,re,os,subprocess,json
+          url='https://v.douyin.com/NRlGp9fKoMs/'
+          for ua_name,ua in [
+            ('android','Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36'),
+            ('iphone','Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1')]:
+            try:
+              s=requests.Session()
+              resp=s.get(url,timeout=20,headers={'User-Agent':ua,'Referer':'https://www.douyin.com/'})
+              body=resp.text
+              print('LINK_RESULT',ua_name,'http',resp.status_code,'final_url',resp.url,'bytes',len(resp.content),'video_id',re.findall(r'(?:video/|modal_id=)(\\d{15,22})',resp.url),'router',('_ROUTER_DATA' in body),'detail',('videoInfoRes' in body),'play_addr',('play_addr' in body),'video_tag',('<video' in body),'cookies',list(s.cookies.keys()),flush=True)
+            except Exception as e:
+              print('LINK_ERROR',ua_name,type(e).__name__,str(e)[:250],flush=True)
+          PY
+          mkdir -p /tmp/video-check
+          set +e
+          python3 -m yt_dlp --no-playlist --no-progress --socket-timeout 15 --retries 1 --fragment-retries 1 --extractor-retries 1 --max-filesize 100M -f 'best[ext=mp4]/best' -o '/tmp/video-check/%(id)s.%(ext)s' 'https://v.douyin.com/NRlGp9fKoMs/'
+          status=$?
+          set -e
+          echo "YT_DLP_EXIT_CODE=$status"
+          python3 - <<'PY'
+          import glob,os,subprocess,json
+          fs=glob.glob('/tmp/video-check/*')
+          print('DOWNLOADED_FILES',[(os.path.basename(f),os.stat(f).st_size) for f in fs],flush=True)
+          for f in fs:
+            p=subprocess.run(['ffprobe','-v','error','-show_entries','format=duration,size:stream=codec_type,codec_name','-of','json',f],capture_output=True,text=True,timeout=30)
+            print('FFPROBE_EXIT',p.returncode,'RESULT',p.stdout[:2000],'STDERR',p.stderr[:300],flush=True)
+          PY
