@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android video-only APK
 on:
   workflow_dispatch:
   push:
@@ -8,7 +8,7 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -21,34 +21,22 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Bundle offline SenseVoice model and Android runtime
-        shell: bash
+      - name: Build APK without speech models or API
+        run: gradle --no-daemon assembleDebug
+      - name: Check video-only APK and absence of model
         run: |
           set -euo pipefail
-          mkdir -p app/libs
-          curl --fail --location --retry 4 --retry-delay 2 --output app/libs/sherpa-onnx-2.0.1.aar \
-            https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.1/sherpa-onnx-2.0.1.aar
-          echo "a8d09d1d32f3eb8520482c6d3d43fae674681c5b050385967c70a3c2c9bf0ee7  app/libs/sherpa-onnx-2.0.1.aar" | sha256sum -c -
-          curl --fail --location --retry 4 --retry-delay 2 --output sensevoice.tar.bz2 \
-            https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2
-          echo "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e  sensevoice.tar.bz2" | sha256sum -c -
-          tar -xjf sensevoice.tar.bz2 -C app/src/main/assets
-          mv app/src/main/assets/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17 app/src/main/assets/sensevoice-cn
-          test -s app/src/main/assets/sensevoice-cn/model.int8.onnx
-          test -s app/src/main/assets/sensevoice-cn/tokens.txt
-          du -sh app/src/main/assets/sensevoice-cn
-          unzip -l app/libs/sherpa-onnx-2.0.1.aar | grep -E 'classes.jar|lib/arm64-v8a/'
-      - name: Build high accuracy offline APK
-        run: gradle --no-daemon assembleDebug
-      - name: Check compiled APK content
-        run: |
-          test -s app/build/outputs/apk/debug/app-debug.apk
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'sensevoice-cn/model.int8.onnx'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'lib/arm64-v8a/libsherpa-onnx-jni.so'
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -tq "$APK" >/dev/null
+          if unzip -Z1 "$APK" | grep -E '(sensevoice|model-cn|libsherpa|onnx|vosk|[.]kt$)' ; then
+            echo "Unwanted speech model included" >&2
+            exit 1
+          fi
+          ls -lh "$APK"
+      - uses: actions/upload-artifact@v4
         with:
-          name: zhiyin-v05-classic-mobile-tested-apk
+          name: zhiyin-video-only-v060-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
           if-no-files-found: error

@@ -1,24 +1,16 @@
-plugins { 
-  id 'com.android.application'
-  id 'org.jetbrains.kotlin.android'
-}
+plugins { id 'com.android.application' }
 android {
-  namespace 'com.example.douyinexport'
-  compileSdk 35
-  defaultConfig {
-    applicationId 'com.example.douyinexport'
-    minSdk 26
-    targetSdk 34
-    versionCode 10
-    versionName '0.5.1-classic-mobile'
-    ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }
-  }
-  compileOptions {
-    sourceCompatibility JavaVersion.VERSION_17
-    targetCompatibility JavaVersion.VERSION_17
-  }
-  kotlinOptions { jvmTarget = '17' }
-}
-dependencies {
-  implementation files('libs/sherpa-onnx-2.0.1.aar')
+    namespace 'com.example.douyinexport'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.example.douyinexport'
+        minSdk 26
+        targetSdk 34
+        versionCode 11
+        versionName '0.6.0-video-only'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
 }

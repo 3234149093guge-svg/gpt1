@@ -1,49 +1,112 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#081121"><title>视频提取器</title>
-<style>:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#081121;color:#edf3ff;font:15px/1.6 system-ui,'Noto Sans SC',sans-serif}main{max-width:720px;margin:auto;padding:24px 18px 70px}.tag{color:#8baaff;letter-spacing:2px;font-size:11px}h1{font-size:29px;line-height:1.2;margin:6px 0 12px}p,small{color:#98a9c0}.card{background:#122039;border:1px solid #293d59;padding:17px;border-radius:18px;margin:16px 0}.num{color:#98b4ff;font-size:12px;margin-right:8px}.title{font-weight:750;font-size:17px;margin-bottom:12px}textarea,input{background:#08152a;border:1px solid #3e5270;color:#f7faff;border-radius:11px;font:inherit;padding:12px;width:100%;outline:none}textarea{min-height:100px;resize:vertical}#text{min-height:230px;line-height:1.8}input{min-height:48px}button{border:1px solid #45638a;border-radius:11px;background:#253b5b;color:#fff;min-height:46px;font-weight:650;font-size:14px;padding:9px}button.primary{background:#587df5;border-color:#587df5}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}.tri{grid-template-columns:repeat(3,minmax(0,1fr))}.status{border:1px solid #3c577e;padding:12px;border-radius:12px;margin:12px 0;color:#cadef7;white-space:pre-wrap;overflow-wrap:anywhere}.status.error{color:#ffc6ca;border-color:#aa5157}.status.ok{color:#b7efd8;border-color:#367963}.hint{font-size:12px;color:#95a8c1;margin-top:9px}label{font-size:12px;color:#adc1dd;display:block;margin:12px 0 6px}#media{overflow-wrap:anywhere;font-size:11px;color:#abbcdb}button:disabled{opacity:.5}</style></head><body><main>
-<div class="tag">V0.5.1 · CLASSIC 0.4 CORE · VIDEO / AUDIO / TEXT</div><h1>一个链接，三种导出。</h1><p>抖音分享链接 → 视频、音频和 AI 文字稿。</p>
-<section class="card"><div class="title"><span class="num">01</span>粘贴分享链接</div><textarea id="url" placeholder="https://v.douyin.com/..."></textarea><div class="grid"><button onclick="App.paste()">粘贴</button><button id="resolveBtn" class="primary" onclick="resolve()">解析链接</button></div><p class="hint">一次点击会使用 v0.4 的经典解析方式，必要时自动复核一次；绝不会打开抖音网页。</p><div id="media"></div></section>
-<section class="card"><div class="title"><span class="num">02</span>导出视频与音频</div><div class="grid"><button class="primary" onclick="App.download()">🎬 视频 MP4</button><button onclick="App.audio()">🎧 音频 M4A</button></div><div class="grid"><button onclick="App.pick()">＋ 导入本地视频</button><button onclick="App.pickAudio()">＋ 导入本地音频</button></div><p class="hint">视频只能从可访问的媒体地址保存。无法直接下载时，可使用有权处理的本地视频文件。</p></section>
-<div id="status" class="status" aria-live="polite">准备就绪。请粘贴视频链接或导入本地视频。</div>
-<section class="card" id="trans">
-<div class="title"><span class="num">03</span>离线中文语音转文字</div>
-<p class="hint">✅ 内置 SenseVoice 高精度中文识别模型 · 不用 API Key · 不上传音频 · 无需联网。首次使用会解压约 230 MB 模型。</p>
-<div class="grid">
-<button class="primary" onclick="App.offlineTranscribe()">✨ 开始离线识别</button>
-<button onclick="App.cancelTranscription()">停止识别</button>
-</div>
-<p class="hint">自动按停顿分段识别，支持长视频，提供中文标点和实时进度。若出现同音字/术语错误，可直接手动修改；字幕时间戳为片段级近似。</p>
-<label>可编辑中文文字稿</label>
-<textarea id="text" placeholder="离线识别得到的文字将显示在这里"></textarea>
-<div class="grid">
-<button class="primary" onclick="App.saveText(document.getElementById('text').value)">保存 TXT</button>
-<button onclick="copyField('text')">复制文字</button>
-</div>
-<label>带时间轴字幕（SRT）</label>
-<textarea id="srt" placeholder="识别完成后生成带时间戳的字幕文件" style="min-height:120px"></textarea>
-<div class="grid">
-<button class="primary" onclick="App.saveSrt(document.getElementById('srt').value)">保存 SRT</button>
-<button onclick="copyField('srt')">复制字幕</button>
-</div>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f7f7f5">
+<title>知音 · 视频测试版</title>
+<style>
+:root{color-scheme:light;--paper:#f7f7f5;--ink:#202326;--muted:#7d858d;--hair:#dddeda;--panel:#fff;--blue:#343fc8}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:Inter,system-ui,-apple-system,"Noto Sans SC",sans-serif;font-size:14px;line-height:1.6}
+main{max-width:700px;margin:0 auto;padding:27px 24px 80px}
+.top{display:flex;align-items:center;justify-content:space-between;padding-bottom:37px}
+.brand{letter-spacing:.4px;font-weight:760;font-size:17px}
+.brand b{display:inline-flex;background:#22272d;color:#f7f7f5;width:31px;height:31px;align-items:center;justify-content:center;font-size:16px;border-radius:9px;margin-right:10px}
+.vers{font-size:11px;letter-spacing:1.1px;color:#889097}
+.overline{font-size:11px;letter-spacing:2px;color:#666dc6;margin-bottom:11px}
+h1{font-size:30px;line-height:1.25;letter-spacing:-.9px;font-weight:730;margin:0 0 12px}
+.sub{font-size:13px;color:#7a8289;line-height:1.85;margin:0 0 30px}
+.panel{background:var(--panel);border:1px solid #e2e4e2;border-radius:17px;padding:20px;margin-bottom:16px}
+.t{font-size:14px;font-weight:740;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
+.no{font-size:11px;color:#9aa2a9;font-weight:600;font-variant-numeric:tabular-nums}
+textarea{width:100%;min-height:112px;resize:vertical;border-radius:10px;border:1px solid #d9dcdf;background:#fcfcfb;padding:13px 14px;font:14px/1.75 inherit;color:#202326;outline:none;word-break:break-all}
+textarea:focus{border-color:#8288ce}textarea::placeholder{color:#a4abb2}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px}
+button{background:#fff;border:1px solid #dadddf;padding:11px 12px;border-radius:10px;color:#303943;min-height:45px;font-weight:690;font-size:13px}
+button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+button:disabled{opacity:.47}
+.footnote{font-size:12px;line-height:1.75;color:#80888f;margin:12px 0 0}
+.outcome{padding:15px 0 0;border-top:1px solid #ebecea;margin-top:19px}
+.outcome[hidden]{display:none}
+.result-title{font-size:15px;font-weight:740;display:flex;gap:8px;align-items:center}
+.result-title i{display:block;width:8px;height:8px;border-radius:50%;background:#9ca3ae}
+.outcome.good .result-title i{background:#328567}
+.outcome.bad .result-title i{background:#cb6868}
+.result-desc{font-size:12px;color:#7a828a;line-height:1.75;margin:7px 0 0}
+.download{display:block;width:100%;font-size:14px;margin-top:16px}
+.message{font-size:12px;color:#4f677e;line-height:1.8;white-space:pre-wrap;margin-top:14px}
+.progress{height:3px;border-radius:30px;background:#ecedef;margin-top:13px;overflow:hidden}
+.progress>span{display:block;height:100%;width:36%;background:#8289d6;animation:load 1.3s ease-in-out infinite alternate}
+@keyframes load{from{transform:translateX(-100%)}to{transform:translateX(290%)}}
+.logHead{display:flex;align-items:center;justify-content:space-between}
+.small{font-size:12px;color:#8b939c}
+.log{font-size:11px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;line-height:1.8;color:#697681;white-space:pre-wrap;max-height:215px;overflow:auto;margin-top:12px;word-break:break-all}
+.mini{font-size:12px;padding:7px 12px;min-height:34px}
+.warning{color:#91979e;font-size:11px;line-height:1.9;margin:25px 2px 0}
+</style>
+</head>
+<body><main>
+<header class="top"><div class="brand"><b>知</b>知音</div><div class="vers">VIDEO LAB / 0.6</div></header>
+<div class="overline">LINK TO VIDEO · ANDROID</div>
+<h1>先把视频下载做好。</h1>
+<p class="sub">本版本只验证一件事：抖音分享链接 → 有效 MP4 → 手机保存。没有语音转文字、音频提取或外部网页打开功能。</p>
+<section class="panel">
+ <div class="t">分享链接 <span class="no">01 / INPUT</span></div>
+ <textarea id="input" placeholder="粘贴抖音复制的分享内容，例如：&#10;https://v.douyin.com/NRlGp9fKoMs/"></textarea>
+ <div class="row"><button id="paste" onclick="App.paste()">从剪贴板粘贴</button><button id="parse" class="primary" onclick="start()">解析视频</button></div>
+ <div class="row"><button onclick="App.sample()">载入水煮肉片测试链接</button><button onclick="clearInput()">清除</button></div>
+ <p class="footnote">不会打开抖音网页；解析最多自动复核一次。只有确认返回 MP4 数据后才允许下载。</p>
+ <div class="outcome" id="outcome" hidden>
+  <div class="result-title"><i></i><span id="resultTitle">正在请求</span></div>
+  <p class="result-desc" id="resultDesc"></p>
+  <div class="progress" id="progressLine"><span></span></div>
+  <button id="save" class="primary download" hidden onclick="downloadVideo()">下载并保存 MP4</button>
+ </div>
+ <div class="message" id="message"></div>
 </section>
-<p class="hint">保存位置：文件管理 → 下载 → 抖音提取器（Android 10+）。转写完全在本机进行，识别精度受音质、口音和模型限制；请预留至少600MB可用空间，低内存设备可能运行缓慢。M4A 不是 MP3。</p></main><script>
-let parsing=false;
-function resolve(){
- const v=document.getElementById('url').value;
- if(!v.trim()){status('请先粘贴链接',true);return;}
- if(parsing)return;
- parsing=true;
- document.getElementById('resolveBtn').disabled=true;
- document.getElementById('resolveBtn').textContent='解析中…';
- document.getElementById('media').textContent='';
- status('正在使用 v0.4 的解析方式…');
- App.resolve(v);
+<section class="panel">
+ <div class="logHead"><div class="t" style="margin:0">解析诊断 <span class="no">02 / DEBUG</span></div><button class="mini" onclick="App.copyLogs()">复制日志</button></div>
+ <div class="log" id="log">尚未开始解析。</div>
+</section>
+<p class="warning">视频仅供你有权访问和保存的用途。当前无外部服务、无账号登录、无语音识别模型；视频解析仍需要互联网，且可能受作品权限和平台访问策略限制。</p>
+</main>
+<script>
+let running=false;const $=x=>document.getElementById(x);
+function toggleBusy(v){
+ running=v;$('parse').disabled=v;$('paste').disabled=v;$('save').disabled=v;
+ $('parse').textContent=v?'处理中…':'解析视频';
 }
-function doneParsing(){
- parsing=false;
- document.getElementById('resolveBtn').disabled=false;
- document.getElementById('resolveBtn').textContent='解析链接';
+function show(type,title,desc){
+ const box=$('outcome');box.hidden=false;box.className='outcome '+(type==='good'?'good':type==='bad'?'bad':'');
+ $('resultTitle').textContent=title;$('resultDesc').textContent=desc||'';
+ $('progressLine').style.display=type==='load'?'block':'none';
+ $('save').hidden=type!=='good';
 }
-function status(s,bad,ok){var el=document.getElementById('status');el.textContent=s;el.className='status'+(bad?' error':ok?' ok':'')}
-function copyField(id){var t=document.getElementById(id);t.select();try{document.execCommand('copy');status('已尝试复制文本',false,true)}catch(e){status('请长按文本手动复制',true)}}
-window.fromAndroid=function(d){switch(d.type){case 'link':document.getElementById('url').value=d.text;status('已读取链接，点击解析链接');break;case 'media':doneParsing();document.getElementById('media').textContent='候选视频地址：'+d.text;status('已识别候选视频地址，可尝试导出 MP4',false,true);break;case 'transcript':document.getElementById('text').value=d.text;status('文字稿已生成',false,true);break;case 'subtitles':document.getElementById('srt').value=d.text;status('带时间轴字幕已生成',false,true);break;case 'ready':case 'ok':status(d.text,false,true);break;case 'parseDone':doneParsing();break;case 'error':doneParsing();status(d.text,true);break;default:status(d.text)}}
+function clearInput(){if(running)return;$('input').value='';$('outcome').hidden=true;$('message').textContent='';$('log').textContent='尚未开始解析。';}
+function start(){
+ if(running)return;
+ if(!/https:\/\/\S+/.test($('input').value)){show('bad','缺少链接','请先复制并粘贴完整的抖音分享链接。');return;}
+ toggleBusy(true);$('log').textContent='';$('message').textContent='';show('load','正在解析','正在检查公开分享页的视频数据…');
+ try{App.resolve($('input').value)}catch(e){toggleBusy(false);show('bad','请求失败',String(e))}
+}
+function downloadVideo(){
+ if(running)return;
+ toggleBusy(true);$('save').hidden=true;show('load','正在下载','将验证视频轨道，成功后保存至手机「下载」目录');
+ App.download();
+}
+window.fromAndroid=d=>{
+ switch(d.type){
+ case 'link':$('input').value=d.text;$('outcome').hidden=true;break;
+ case 'videoId':$('message').textContent='作品 ID：'+d.text;break;
+ case 'progress':show('load','正在解析',d.text);break;
+ case 'log':$('log').textContent+=d.text+'\n';$('log').scrollTop=$('log').scrollHeight;break;
+ case 'found':show('load','正在验证视频',d.text);break;
+ case 'ready':toggleBusy(false);show('good','视频地址验证成功',d.text);break;
+ case 'downloadProgress':show('load','下载中',d.text);break;
+ case 'saved':toggleBusy(false);show('good','MP4 已保存',d.text);$('save').hidden=true;break;
+ case 'error':toggleBusy(false);show('bad','处理未成功',d.text);break;
+ case 'idle':toggleBusy(false);break;
+ case 'message':$('message').textContent=d.text;break;
+ }
+}
 </script></body></html>
