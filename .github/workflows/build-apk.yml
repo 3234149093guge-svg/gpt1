@@ -1,14 +1,15 @@
-name: Build Android video-only APK
+name: Build and publish Zhiyin Qwen3-ASR Android
 on:
   workflow_dispatch:
   push:
     branches: [main]
 permissions:
-  contents: read
+  contents: write
 jobs:
   apk:
+    if: github.repository == '3234149093guge-svg/gpt1'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -21,22 +22,67 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build APK without speech models or API
+      - name: Download verified Qwen3 capable sherpa-onnx AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/libs
+          curl -fL --retry 4 --retry-delay 3 -o app/libs/sherpa-onnx-1.12.34.aar \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.12.34/sherpa-onnx-1.12.34.aar
+          echo '9042637b206ef2dd98ea3a2fe28ffaa7e8767557848d94b5e25c268db188535b  app/libs/sherpa-onnx-1.12.34.aar' | sha256sum -c -
+          unzip -l app/libs/sherpa-onnx-1.12.34.aar | grep 'lib/arm64-v8a/libsherpa-onnx-jni.so'
+      - name: Compile Android app
         run: gradle --no-daemon assembleDebug
-      - name: Check video-only APK and absence of model
+      - name: Verify installable package and model-free distribution
+        shell: bash
         run: |
           set -euo pipefail
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
           unzip -tq "$APK" >/dev/null
-          if unzip -Z1 "$APK" | grep -E '(sensevoice|model-cn|libsherpa|onnx|vosk|[.]kt$)' ; then
-            echo "Unwanted speech model included" >&2
+          unzip -l "$APK" | grep 'lib/arm64-v8a/libsherpa-onnx-jni.so'
+          unzip -l "$APK" | grep 'assets/index.html'
+          if unzip -Z1 "$APK" | grep -E '(^|/)(encoder[.]int8[.]onnx|decoder[.]int8[.]onnx|conv_frontend[.]onnx|model[.]int8[.]onnx|sensevoice)' ; then
+            echo "Unexpected model data included in APK" >&2
             exit 1
           fi
-          ls -lh "$APK"
+          cp "$APK" Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.apk
+          sha256sum Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.apk
+          ls -lh Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: zhiyin-video-only-v060-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7-APK
+          path: Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.apk
           retention-days: 30
-          if-no-files-found: error
+      - name: Publish GitHub release APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG='v0.7.0-qwen3-asr-0.6b'
+          FILE='Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.apk'
+          cat > release-notes.md <<'EOF'
+          知音 v0.7 · Qwen3-ASR-0.6B INT8 手机本地识别
+
+          - 官方 Qwen3-ASR-0.6B INT8 模型，sherpa-onnx v1.12.34，Android ARM64 CPU 推理。
+          - 安装 APK 后，点击“下载并安装模型”：官方模型包约 879 MB，SHA-256 校验，支持断点续传。也可手动导入官方 tar.bz2 模型包。
+          - 选择本地音频或视频，按语音停顿分段识别，支持 TXT 和 SRT 导出。
+          - 保留抖音链接解析、MP4 直接下载和诊断功能；不提供外部抖音网页打开入口。
+          - 模型安装后语音转写完全离线，无需账号或 API Key，不上传音视频。
+          - GitHub Actions 已验证编译、JNI 库和 APK 结构；尚未经特定 Android 真机下载大模型并完成推理测试。
+          - 建议 Android 8+、ARM64、RAM 8 GB 以上；安装模型建议预留至少 2.4 GB。
+          - 这是开发测试版，安装时可能需卸载之前签名不同的测试 APK，请提前保存重要数据。
+
+          官方模型：
+          https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2
+          sha256: 393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96
+          EOF
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$FILE" --clobber --repo "${{ github.repository }}"
+          else
+            gh release create "$TAG" "$FILE" --repo "${{ github.repository }}" \
+              --target "${{ github.sha }}" \
+              --title "知音 v0.7 · Qwen3-ASR-0.6B INT8 离线转文字" \
+              --prerelease --notes-file release-notes.md
+          fi
