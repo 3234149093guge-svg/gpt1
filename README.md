@@ -21,3 +21,5 @@ Actions → Build Android APK → `zhiyin-v05-classic-from-v04-apk`，下载并�
 
 ## 备注
 versionCode=9 以便从更高内部版本平滑覆盖（仍可能因调试证书不同需卸载）。卸载前先备份需要的本地数据。
+
+本版增加一项在实际用户样本上已取得视频元数据和 MP4 文件头的移动分享页备用请求（iPhone User-Agent，仅在 v0.4 原路径无数据时启动）。后续验证工作流会检查完整文件、视频和音频轨道。

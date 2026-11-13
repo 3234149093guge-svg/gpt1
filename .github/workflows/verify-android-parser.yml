@@ -74,6 +74,7 @@ jobs:
              if(media.isEmpty())media=scanDirectVideo(html);
              if(media.isEmpty())throw new AssertionError("ACTUAL_ANDROID_PARSER_CANNOT_GET_VIDEO");
              URL u=new URL(media);
+             Files.writeString(Path.of("/tmp/douyin-media-url.txt"),media);
              System.out.println("ACTUAL_ANDROID_PARSER_SUCCESS host="+u.getHost());
              Exception failed=null;
              for(int attempt=1;attempt<=3;attempt++){
@@ -102,3 +103,36 @@ jobs:
           PY
           javac -encoding UTF-8 -cp /tmp/org-json.jar /tmp/ParserProbe.java
           java -cp /tmp:/tmp/org-json.jar ParserProbe
+      - name: Download complete sample MP4 and validate video and audio tracks
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v ffprobe || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null)
+          python3 - <<'PY'
+          import urllib.request,pathlib
+          url=pathlib.Path('/tmp/douyin-media-url.txt').read_text().strip()
+          headers={'User-Agent':'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
+                   'Referer':'https://www.douyin.com/','Accept':'video/mp4,video/*,*/*'}
+          req=urllib.request.Request(url,headers=headers)
+          path=pathlib.Path('/tmp/douyin-sample-verified.mp4')
+          with urllib.request.urlopen(req,timeout=45) as rsp,open(path,'wb') as w:
+            total=0
+            while True:
+              b=rsp.read(65536)
+              if not b:break
+              total+=len(b)
+              if total>125_000_000:raise RuntimeError('Video exceeds bounded test size')
+              w.write(b)
+          with open(path,'rb') as f:header=f.read(16)
+          assert header[4:8]==b'ftyp',(len(header),header)
+          print('FULL_MP4_DOWNLOADED',total,'bytes',flush=True)
+          PY
+          ffprobe -v error -show_entries format=duration,size:stream=codec_type,codec_name -of json /tmp/douyin-sample-verified.mp4 > /tmp/douyin-probe.json
+          python3 - <<'PY'
+          import json,pathlib
+          meta=json.loads(pathlib.Path('/tmp/douyin-probe.json').read_text())
+          types={s.get('codec_type') for s in meta.get('streams',[])}
+          assert 'video' in types,types
+          assert 'audio' in types,types
+          print('FULL_VIDEO_AND_AUDIO_VERIFIED',meta,flush=True)
+          PY
