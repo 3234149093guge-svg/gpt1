@@ -57,7 +57,7 @@ jobs:
           import pathlib
           code=pathlib.Path('app/src/main/java/com/example/douyinexport/MainActivity.java').read_text()
           start=code.index('    private static String jsonObjectFollowing(')
-          end=code.index('    private void prepareHttpSession()',start)
+          end=code.index('    private void resolveLink(String text)',start)
           methods=code[start:end]
           assert 'private static String structuredMedia(' in methods
           assert 'private static String visitMedia(' in methods
