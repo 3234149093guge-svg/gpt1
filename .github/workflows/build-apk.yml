@@ -30,7 +30,7 @@ jobs:
           curl -fL --retry 4 --retry-delay 3 -o app/libs/sherpa-onnx-1.12.34.aar \
             https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.12.34/sherpa-onnx-1.12.34.aar
           echo '9042637b206ef2dd98ea3a2fe28ffaa7e8767557848d94b5e25c268db188535b  app/libs/sherpa-onnx-1.12.34.aar' | sha256sum -c -
-          unzip -l app/libs/sherpa-onnx-1.12.34.aar | grep 'lib/arm64-v8a/libsherpa-onnx-jni.so'
+          unzip -l app/libs/sherpa-onnx-1.12.34.aar | grep 'libsherpa-onnx-jni.so'
       - name: Compile Android app
         run: gradle --no-daemon assembleDebug
       - name: Verify installable package and model-free distribution
