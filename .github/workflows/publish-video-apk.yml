@@ -1,0 +1,38 @@
+name: Publish video-only Android test APK
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/publish-video-apk.yml
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch successful lightweight Android build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 43371586353 --repo "$GITHUB_REPOSITORY" --name zhiyin-video-only-v060-apk --dir /tmp/tester-apk
+          test -s /tmp/tester-apk/app-debug.apk
+          cp /tmp/tester-apk/app-debug.apk /tmp/Zhiyin-Video-Only-v0.6.apk
+          unzip -tq /tmp/Zhiyin-Video-Only-v0.6.apk >/dev/null
+          du -h /tmp/Zhiyin-Video-Only-v0.6.apk
+          sha256sum /tmp/Zhiyin-Video-Only-v0.6.apk
+      - name: Publish release for direct APK download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create video-only-v0.6-tester /tmp/Zhiyin-Video-Only-v0.6.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --target main \
+            --title "知音 · 视频解析单项测试 v0.6" \
+            --notes "纯视频测试版，不含语音识别模型、音频提取和外站浏览器。GitHub CI 已对用户指定的水煮肉片样本进行真实播放地址提取，并完整下载约 85.9 MB MP4，FFprobe 检查到 H.264 视频和 AAC 音频轨。请注意：CI 网络验证不等于用户 Android 真机通过，首次安装解析仍需用户实测。" \
+            --latest=false
+          gh release view video-only-v0.6-tester --repo "$GITHUB_REPOSITORY" --json assets,url,tagName
