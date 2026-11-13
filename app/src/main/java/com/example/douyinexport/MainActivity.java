@@ -26,6 +26,10 @@ import java.util.regex.*;
 
 public class MainActivity extends Activity {
     private static final long LIMIT=500L*1024*1024;
+    private static final int PICK_MEDIA=89;
+    private static final int PICK_MODEL=90;
+    private volatile File localMedia=null;
+    private final java.util.concurrent.atomic.AtomicBoolean recognitionCancelled=new java.util.concurrent.atomic.AtomicBoolean(false);
     private static final String SAMPLE_LINK="https://v.douyin.com/NRlGp9fKoMs/";
     private static final String ANDROID_UA="Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36";
     private static final String IPHONE_UA="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
@@ -54,6 +58,8 @@ public class MainActivity extends Activity {
         ui.setWebViewClient(new WebViewClient(){
             @Override public void onPageFinished(WebView view,String url){
                 if(!incoming.isEmpty()){send("link",incoming);incoming="";}
+                send(QwenModelManager.installed(MainActivity.this)?"modelReady":"modelMissing",
+                    QwenModelManager.installed(MainActivity.this)?"模型已安装，可离线识别":"模型未安装");
             }
         });
         setContentView(ui);
@@ -116,6 +122,77 @@ public class MainActivity extends Activity {
                 catch(Exception e){log("下载异常："+message(e));send("error","下载失败："+message(e));}
                 finally{working.set(false);send("idle","");}
             },"video-download").start();
+        }
+        @JavascriptInterface public void modelStatus(){
+            send(QwenModelManager.installed(MainActivity.this)?"modelReady":"modelMissing",
+                 QwenModelManager.installed(MainActivity.this)?"模型已安装，可离线识别":"模型未安装");
+        }
+        @JavascriptInterface public void installModel(){
+            runOnUiThread(()->new android.app.AlertDialog.Builder(MainActivity.this)
+                .setTitle("下载 Qwen3-ASR-0.6B INT8")
+                .setMessage("官方模型压缩包约 879 MB，解压后约 1 GB；建议使用 Wi-Fi，并预留至少 2.4 GB 空间。模型下载一次，之后完全离线识别。确认下载吗？")
+                .setNegativeButton("取消",null)
+                .setPositiveButton("下载",(dialog,which)->{
+                    if(!working.compareAndSet(false,true)){send("message","其他任务尚未结束");return;}
+                    new Thread(()->{
+                        try{
+                            QwenModelManager.downloadAndInstall(MainActivity.this,
+                                msg->send("modelProgress",msg));
+                            send("modelReady","Qwen3-ASR-0.6B INT8 安装完成");
+                        }catch(Exception e){send("modelError","模型安装失败："+message(e));}
+                        finally{working.set(false);send("idle","");}
+                    },"model-install").start();
+                }).show());
+        }
+        @JavascriptInterface public void importModel(){
+            runOnUiThread(()->{
+                Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("*/*");
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivityForResult(i,PICK_MODEL);
+            });
+        }
+        @JavascriptInterface public void pickMedia(){
+            runOnUiThread(()->{
+                Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("*/*");
+                i.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"video/*","audio/*"});
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivityForResult(i,PICK_MEDIA);
+            });
+        }
+        @JavascriptInterface public void transcribe(){
+            if(!working.compareAndSet(false,true)){send("message","其他任务尚未结束");return;}
+            recognitionCancelled.set(false);
+            new Thread(()->{
+                try{
+                    if(!QwenModelManager.installed(MainActivity.this))
+                        throw new IOException("请先安装 Qwen3-ASR-0.6B INT8 模型");
+                    File selected=localMedia;
+                    if(selected==null||!selected.isFile())
+                        throw new IOException("请先下载 MP4 或导入本地音视频");
+                    send("asrProgress","正在初始化 Qwen3-ASR 本地模型…");
+                    OfflineTranscriber.Result result=OfflineTranscriber.transcribe(
+                        MainActivity.this,selected,new OfflineTranscriber.Listener(){
+                            @Override public void progress(String info){send("asrProgress",info);}
+                            @Override public boolean cancelled(){return recognitionCancelled.get()||Thread.currentThread().isInterrupted();}
+                        });
+                    send("transcript",result.text);
+                    send("subtitles",result.subtitles);
+                    send("asrReady","完成 "+result.segments+" 段离线识别，文字稿可编辑及保存");
+                }catch(java.io.InterruptedIOException e){send("asrError","识别已取消");}
+                 catch(Exception e){send("asrError","转写失败："+message(e));}
+                finally{working.set(false);send("idle","");}
+            },"qwen3-asr").start();
+        }
+        @JavascriptInterface public void cancelAsr(){recognitionCancelled.set(true);}
+        @JavascriptInterface public void exportTxt(String value){
+            new Thread(()->exportText(value,"文字稿","txt","text/plain"),"export-txt").start();
+        }
+        @JavascriptInterface public void exportSrt(String value){
+            new Thread(()->exportText(value,"字幕","srt","application/x-subrip"),"export-srt").start();
         }
         @JavascriptInterface public void copyLogs(){synchronized(logLock){GenCopy(diagnostics);}}
     }
@@ -452,11 +529,14 @@ public class MainActivity extends Activity {
             String filename="视频_"+(id.isEmpty()?"抖音":id)+"_"+
                 new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.CHINA).format(new Date())+".mp4";
             save(temp,filename);
+            File last=localMedia;
+            localMedia=temp;
+            if(last!=null&&!last.equals(temp))last.delete();
             log("MP4 完整下载并校验："+temp.length()/1024/1024+" MB");
             send("saved","视频已保存：下载 / 抖音提取器 / "+filename);
         }finally{
             if(c!=null)c.disconnect();
-            if(temp.exists())temp.delete();
+            if(temp.exists()&&!temp.equals(localMedia))temp.delete();
         }
     }
     private void save(File local,String filename)throws Exception{
@@ -492,5 +572,77 @@ public class MainActivity extends Activity {
             }
         }
     }
-    @Override protected void onDestroy(){if(ui!=null)ui.destroy();super.onDestroy();}
+
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(result!=RESULT_OK||data==null||data.getData()==null)return;
+        final Uri selected=data.getData();
+        if(request!=PICK_MEDIA&&request!=PICK_MODEL)return;
+        if(!working.compareAndSet(false,true)){send("message","另一任务尚未结束");return;}
+        new Thread(()->{
+            try{
+                if(request==PICK_MODEL){
+                    QwenModelManager.importArchive(MainActivity.this,selected,
+                        msg->send("modelProgress",msg));
+                    send("modelReady","官方 Qwen3 模型包校验并安装完成");
+                }else{
+                    String mime=getContentResolver().getType(selected);
+                    boolean audio=mime!=null&&mime.startsWith("audio/");
+                    File temp=new File(getCacheDir(),"media_"+System.currentTimeMillis()+(audio?".m4a":".mp4"));
+                    try(InputStream in=getContentResolver().openInputStream(selected);
+                        OutputStream out=new FileOutputStream(temp)){
+                        if(in==null)throw new IOException("无法读取所选文件");
+                        copy(in,out,LIMIT);
+                    }
+                    MediaExtractor extractor=new MediaExtractor();
+                    try{
+                        extractor.setDataSource(temp.getAbsolutePath());
+                        boolean sound=false;
+                        for(int i=0;i<extractor.getTrackCount();i++){
+                            String track=extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME);
+                            if(track!=null&&track.startsWith("audio/"))sound=true;
+                        }
+                        if(!sound)throw new IOException("文件不包含可识别的音频轨道");
+                    }finally{extractor.release();}
+                    File old=localMedia;
+                    localMedia=temp;
+                    if(old!=null&&!old.equals(temp))old.delete();
+                    send("mediaSelected","已导入本地"+(audio?"音频":"视频")+"，可开始离线转文字");
+                }
+            }catch(Exception e){send(request==PICK_MODEL?"modelError":"asrError","导入失败："+message(e));}
+            finally{working.set(false);send("idle","");}
+        },"import-file").start();
+    }
+    private void exportText(String content,String title,String ext,String mime){
+        if(content==null||content.trim().isEmpty()){send("asrError","文字稿为空");return;}
+        try{
+            String filename=title+"_"+new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.CHINA).format(new Date())+"."+ext;
+            if(Build.VERSION.SDK_INT>=29){
+                ContentValues values=new ContentValues();
+                values.put(MediaStore.MediaColumns.DISPLAY_NAME,filename);
+                values.put(MediaStore.MediaColumns.MIME_TYPE,mime);
+                values.put(MediaStore.MediaColumns.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS+"/知音");
+                values.put(MediaStore.MediaColumns.IS_PENDING,1);
+                Uri uri=getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,values);
+                if(uri==null)throw new IOException("无法创建导出文件");
+                try{
+                    try(OutputStream out=getContentResolver().openOutputStream(uri)){
+                        if(out==null)throw new IOException("无法写入导出文件");
+                        out.write(content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    }
+                    values.clear();values.put(MediaStore.MediaColumns.IS_PENDING,0);
+                    getContentResolver().update(uri,values,null,null);
+                }catch(Exception e){getContentResolver().delete(uri,null,null);throw e;}
+            }else{
+                File dir=new File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),"知音");
+                if(!dir.exists()&&!dir.mkdirs())throw new IOException("无法建立导出目录");
+                try(OutputStream out=new FileOutputStream(new File(dir,filename))){
+                    out.write(content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+            }
+            send("asrSaved","文件已保存："+filename);
+        }catch(Exception e){send("asrError","导出失败："+message(e));}
+    }
+
+    @Override protected void onDestroy(){recognitionCancelled.set(true);if(ui!=null)ui.destroy();super.onDestroy();}
 }
