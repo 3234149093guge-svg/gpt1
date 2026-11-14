@@ -7,13 +7,14 @@ import com.k2fsa.sherpa.onnx.OfflineQwen3AsrModelConfig
 import java.io.File
 
 /**
- * Qwen3-ASR-0.6B INT8 offline inference via sherpa-onnx 1.12.34.
- * Model path is on the device. Audio is never sent to a server.
+ * Same Qwen3-ASR-0.6B INT8 ONNX weights and decoding parameters as v0.7.
+ * The only variable is CPU thread count (2, 3 or 4).
  */
-class Qwen3AsrEngine(modelDir: String) : AutoCloseable {
+class Qwen3AsrEngine(modelDir: String, val threads: Int) : AutoCloseable {
     private val recognizer: OfflineRecognizer
 
     init {
+        require(threads in 2..4) { "线程必须为 2、3 或 4" }
         val root = File(modelDir)
         val frontend = File(root, "conv_frontend.onnx")
         val encoder = File(root, "encoder.int8.onnx")
@@ -34,7 +35,7 @@ class Qwen3AsrEngine(modelDir: String) : AutoCloseable {
                     maxNewTokens = 256
                 ),
                 tokens = "",
-                numThreads = 2,
+                numThreads = threads,
                 provider = "cpu"
             )
         )
@@ -52,7 +53,5 @@ class Qwen3AsrEngine(modelDir: String) : AutoCloseable {
         }
     }
 
-    override fun close() {
-        recognizer.release()
-    }
+    override fun close() = recognizer.release()
 }
