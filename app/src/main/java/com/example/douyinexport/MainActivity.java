@@ -60,6 +60,7 @@ public class MainActivity extends Activity {
                 if(!incoming.isEmpty()){send("link",incoming);incoming="";}
                 send(QwenModelManager.installed(MainActivity.this)?"modelReady":"modelMissing",
                     QwenModelManager.installed(MainActivity.this)?"模型已安装，可离线识别":"模型未安装");
+                send("tuneStatus","当前模式："+AsrPerformanceTuner.selectedThreads(MainActivity.this)+" CPU 线程");
             }
         });
         setContentView(ui);
@@ -182,10 +183,39 @@ public class MainActivity extends Activity {
                     send("transcript",result.text);
                     send("subtitles",result.subtitles);
                     send("asrReady","完成 "+result.segments+" 段离线识别，文字稿可编辑及保存");
+                    send("asrStats",result.performance);
                 }catch(java.io.InterruptedIOException e){send("asrError","识别已取消");}
                  catch(Exception e){send("asrError","转写失败："+message(e));}
                 finally{working.set(false);send("idle","");}
             },"qwen3-asr").start();
+        }
+        @JavascriptInterface public void startThreadBenchmark(){
+            if(!working.compareAndSet(false,true)){send("message","已有任务正在执行");return;}
+            recognitionCancelled.set(false);
+            new Thread(()->{
+                try{
+                    File source=localMedia;
+                    if(source==null||!source.isFile())
+                        throw new IOException("请先导入视频或音频，或下载 MP4，然后再测速");
+                    String report=AsrPerformanceTuner.benchmark(MainActivity.this,source,
+                        new AsrPerformanceTuner.Listener(){
+                            @Override public void progress(String msg){send("tuneProgress",msg);}
+                            @Override public boolean cancelled(){return recognitionCancelled.get()||Thread.currentThread().isInterrupted();}
+                        });
+                    send("tuneDone",report);
+                    send("tuneStatus","当前模式："+AsrPerformanceTuner.selectedThreads(MainActivity.this)+" CPU 线程");
+                }catch(java.io.InterruptedIOException e){
+                    send("tuneError","测速已取消，保持之前的配置");
+                }catch(Exception e){
+                    send("tuneError","测速未完成："+message(e)+"；保留之前的配置");
+                }finally{working.set(false);send("idle","");}
+            },"qwen3-thread-benchmark").start();
+        }
+        @JavascriptInterface public void resetThreads(){
+            if(working.get()){send("message","请在当前任务结束后恢复默认设置");return;}
+            AsrPerformanceTuner.reset(MainActivity.this);
+            send("tuneStatus","当前模式：2 CPU 线程（v0.7 原版）");
+            send("tuneDone","已恢复原版两线程设置；模型权重和分段不变。");
         }
         @JavascriptInterface public void cancelAsr(){recognitionCancelled.set(true);}
         @JavascriptInterface public void exportTxt(String value){
@@ -644,5 +674,15 @@ public class MainActivity extends Activity {
         }catch(Exception e){send("asrError","导出失败："+message(e));}
     }
 
-    @Override protected void onDestroy(){recognitionCancelled.set(true);if(ui!=null)ui.destroy();super.onDestroy();}
+    @Override public void onTrimMemory(int level){
+        super.onTrimMemory(level);
+        if(level>=android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW)
+            QwenEnginePool.clearIdle();
+    }
+    @Override protected void onDestroy(){
+        recognitionCancelled.set(true);
+        QwenEnginePool.clearIdle();
+        if(ui!=null)ui.destroy();
+        super.onDestroy();
+    }
 }
