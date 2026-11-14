@@ -1,34 +1,34 @@
-# 知音 Android v0.7 — Qwen3-ASR-0.6B INT8 离线转写
+# 知音 Android v0.7.1 — Qwen3-ASR-0.6B INT8 高精度加速版
 
-本版本把 Qwen3-ASR-0.6B INT8 真正接入 Android 应用（sherpa-onnx 1.12.34），不是只展示模型介绍。
+本版保留 v0.7 同一套 Qwen3 0.6B INT8 ONNX 模型、推理参数、16kHz 重采样与静音分段，只优化 CPU 线程与模型生命周期。
+
+## 下载与安装
+
+GitHub Release: https://github.com/3234149093guge-svg/gpt1/releases/tag/v0.7.1-qwen3-asr-speed
+
+v0.7 的调试签名没有长期签名保障，覆盖升级可能发生签名冲突。为避免卸载 v0.7 删除手机已经下载的模型，v0.7.1 使用新的 applicationId (com.example.douyinexport.speedtest)，可与 v0.7 **同时安装**；二者私有模型不能共享，首次使用新版需在新版重新安装模型（约 879MB 压缩包，约 1GB 解压）或导入官方 tar.bz2 文件。
 
 ## 使用流程
-1. 到 [Releases](https://github.com/3234149093guge-svg/gpt1/releases/tag/v0.7.0-qwen3-asr-0.6b) 下载 `Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.apk`。
-2. 打开 App → 「下载并安装模型」。官方压缩包约 879 MB，SHA-256 校验成功后解压到应用私有目录；下载中断会保留 `.part` 文件以便重试。
-3. 如官方模型下载不通，可先用浏览器下载官方 `sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2`，点击「导入已有模型包」，在手机选中压缩包。无需联网即可安装导入的压缩包。
-4. 选择本地视频/音频，或者先解析并下载允许访问的抖音视频。
-5. 点击「开始离线识别」，生成可编辑中文文字稿，以及按片段时间轴估算的 SRT 字幕。
-6. 选择导出 TXT/SRT 到系统下载目录。
 
-## 关键组件
-- `app/src/main/java/com/example/douyinexport/QwenModelManager.java`: Android 模型包下载、断点续传、SHA-256、tar.bz2 解压、断电安全临时目录。
-- `Qwen3AsrEngine.kt`: Qwen3-ASR-0.6B INT8 Qwen3 模型配置 + sherpa-onnx 离线推理。
-- `OfflineTranscriber.java`: Android MediaExtractor / MediaCodec 解码音频，重采样 16kHz 单声道、静音分段、按块推理。
-- `MainActivity.java`: 导入视频/音频、视频下载、安装模型、转写任务、TXT/SRT 导出，错误提示。
-- `index.html`: Android 内嵌极简界面，无外部网页浏览。
-- `build-apk.yml`: Android 构建、验证不捆绑 1 GB 模型、GitHub Release 自动发布 APK。
+1. 安装 v0.7.1 APK；在新版内下载安装 Qwen3-ASR-0.6B INT8 模型。
+2. 导入或下载一段有人声的音视频。
+3. 默认仍按 v0.7 原版 2 CPU 线程离线转写；转写完成后显示实际加载、推理、解码耗时。
+4. 点击【本地性能优化 → 在当前音视频上自动测速】。使用相同的头 8 秒 16kHz PCM 数据，串行测试 2、3、4 线程，每次释放测试模型。第一轮测速启动模型多次，需要额外耗时。
+5. 只有与 2 线程基线的输出全文完全一致、速度至少快 10% 的线程配置，才会被选中并保存。测试不能保证全片识别速度或质量绝对相同。
+6. 随时点击【恢复原版 2 线程】。保留 TXT、SRT 导出和视频下载功能。
 
-## 模型与来源
-官方镜像 https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2
+## 性能措施及准确率边界
 
-- 文件大小：878,702,423 bytes
-- SHA-256：`393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96`
-- sherpa-onnx v1.12.34 AAR SHA-256：`9042637b206ef2dd98ea3a2fe28ffaa7e8767557848d94b5e25c268db188535b`
+- 保留 maxTotalLen=512、maxNewTokens=256、CPU provider，原始静音分段不变。
+- 应用连续转写任务可复用一个已加载模型；空闲 120 秒或出现系统低内存警告时释放。
+- 仅在用户主动触发时才测试不同线程，不自动耗费电量做长时间基准。
+- 精确记录总耗时、加载或缓存复用耗时、实际推理耗时、解码与分段近似耗时。
+- 不引入 GPU/NPU、不降低 INT8 精度、不使用外部转写服务。
+- 模型内存占用大，基准测试中依次而非同时加载模型。
+- 本次 CI 通过不等于荣耀 Magic7 真机已完成加速验证；请对比同一个 4 分钟视频的原版 47 秒记录。
 
-## 验证边界
-APK 成功编译只能证明依赖和 Java/Kotlin 接口能通过构建，**不等于已经在用户手机成功下载并识别音视频**。大模型资源、内存限制以及抖音平台视频解析服务可能影响实际体验。
+## 官方模型
 
-## 注意事项
-- Qwen3-ASR 模型文件超大，建议 8 GB+ 运行内存、2.4 GB 以上可用存储，下载使用 Wi-Fi。
-- 安装后语音转文字不上传音频；抖音链接解析需要互联网，并不保证每条公开视频都能获取地址。
-- 官方 Qwen3-ASR-0.6B 模型许可和使用条款请参见 QwenLM 官方仓库。
+https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2
+
+sherpa-onnx Android 1.12.34，arm64-v8a，离线推理。

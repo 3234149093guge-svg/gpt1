@@ -6,11 +6,11 @@ android {
     namespace 'com.example.douyinexport'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.example.douyinexport'
+        applicationId 'com.example.douyinexport.speedtest'
         minSdk 26
         targetSdk 34
-        versionCode 12
-        versionName '0.7.0-qwen3-asr-0.6b'
+        versionCode 13
+        versionName '0.7.1-qwen3-asr-speed'
         ndk { abiFilters 'arm64-v8a' }
     }
     compileOptions {
