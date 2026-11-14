@@ -1,4 +1,4 @@
-name: Build and publish Zhiyin Qwen3-ASR 0.7.1 speed
+name: Build and publish Zhiyin Qwen3-ASR 0.7.2 background
 on:
   workflow_dispatch:
   push:
@@ -42,21 +42,23 @@ jobs:
           unzip -tq "$APK" >/dev/null
           unzip -l "$APK" | grep 'lib/arm64-v8a/libsherpa-onnx-jni.so'
           unzip -l "$APK" | grep 'assets/index.html'
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.example.douyinexport.speedtest'"
-          grep -q 'numThreads = threads' app/src/main/java/com/example/douyinexport/Qwen3AsrEngine.kt
-          grep -q 'baseline.equals(result)' app/src/main/java/com/example/douyinexport/AsrPerformanceTuner.java
-          grep -q 'IDLE_SECONDS=120' app/src/main/java/com/example/douyinexport/QwenEnginePool.java
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.example.douyinexport.background'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump xmltree "$APK" AndroidManifest.xml | grep 'TranscriptionService'
+          grep -q 'default void onSegment' app/src/main/java/com/example/douyinexport/OfflineTranscriber.java
+          grep -q 'int threads=2;' app/src/main/java/com/example/douyinexport/OfflineTranscriber.java
+          grep -q 'FOREGROUND_SERVICE_MEDIA_PROCESSING' app/src/main/AndroidManifest.xml
+          grep -q 'startForegroundService(task)' app/src/main/java/com/example/douyinexport/MainActivity.java
           if unzip -Z1 "$APK" | grep -E '(^|/)(encoder[.]int8[.]onnx|decoder[.]int8[.]onnx|conv_frontend[.]onnx|model[.]int8[.]onnx|sensevoice)' ; then
             echo "Unexpected model data included in APK" >&2
             exit 1
           fi
-          cp "$APK" Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.1-speed.apk
-          sha256sum Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.1-speed.apk
-          ls -lh Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.1-speed.apk
+          cp "$APK" Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.2-background.apk
+          sha256sum Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.2-background.apk
+          ls -lh Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.2-background.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.1-speed-APK
-          path: Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.1-speed.apk
+          name: Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.2-background-APK
+          path: Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.2-background.apk
           retention-days: 30
       - name: Publish GitHub release APK
         shell: bash
@@ -64,36 +66,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG='v0.7.1-qwen3-asr-speed'
-          FILE='Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.1-speed.apk'
+          TAG='v0.7.2-qwen3-asr-background'
+          FILE='Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.2-background.apk'
           cat > release-notes.md <<'EOF'
-          知音 v0.7.1 · Qwen3-ASR-0.6B INT8 高精度加速测试版
+          知音 v0.7.2 · Qwen3-ASR-0.6B INT8 后台识别
 
-          - Qwen3 0.6B INT8 原模型和原分段未改；默认保持旧版 2 线程。
-          - 可选本地自动测速 2/3/4 线程：同一采样音频，文字必须与 2 线程结果完全一致且速度改善至少 10% 才择优，支持立即恢复原版。
-          - 连续任务复用模型，空闲两分钟或低内存时释放。
-          - 新增模型加载、AI 推理、音频解码与分段的阶段计时。
-          - 为避免旧版 APK 临时调试签名冲突，新版使用不同应用 ID，可以与 v0.7 并存。
-          - v0.7 和 v0.7.1 的私有模型不共享，首次使用新版需要重新下载或导入约 1GB 模型。
-          - 未经荣耀 Magic7 真机测速，不能保证具体提速幅度。
-          - 官方 Qwen3-ASR-0.6B INT8 模型，sherpa-onnx v1.12.34，Android ARM64 CPU 推理。
-          - 安装 APK 后，点击“下载并安装模型”：官方模型包约 879 MB，SHA-256 校验，支持断点续传。也可手动导入官方 tar.bz2 模型包。
-          - 选择本地音频或视频，按语音停顿分段识别，支持 TXT 和 SRT 导出。
-          - 保留抖音链接解析、MP4 直接下载和诊断功能；不提供外部抖音网页打开入口。
-          - 模型安装后语音转写完全离线，无需账号或 API Key，不上传音视频。
-          - GitHub Actions 已验证编译、JNI 库和 APK 结构；尚未经特定 Android 真机下载大模型并完成推理测试。
-          - 建议 Android 8+、ARM64、RAM 8 GB 以上；安装模型建议预留至少 2.4 GB。
-          - 这是独立开发测试版，与已安装 v0.7 可并存，不必卸载原版。
+          - 真正的 Android Foreground Service：识别任务从 Activity 普通线程移入系统前台服务，切换微信/抖音等其他软件后可继续处理。
+          - 持续通知：展示后台处理进度，点击可返回知音，通知栏提供停止入口。
+          - 逐段原子保存 TXT/SRT：每识别完一段即写入应用私有存储，即使系统强制结束进程也能保留已完成段落。
+          - 页面重进或切回 App 自动恢复状态、部分文本、完整文字稿与 SRT。
+          - 遵循用户要求，固定原版 2 CPU 线程（不是两个进程），仍用 Qwen3-ASR-0.6B INT8，同一解码参数、16kHz、原语音分段。
+          - Android 15+ 使用 mediaProcessing 前台服务类型；Android 14 使用 dataSync（本地文件处理），需要系统前台服务许可；Android 13+ 请求通知权限。
+          - 使用新的应用 ID，可与原 v0.7 和 v0.7.1 并存，避免覆盖旧调试签名 APK；因应用沙盒隔离，新版首次仍需下载或导入官方模型包。
+          - 未经荣耀 Magic7 真机切换应用的实测；后台任务仍可能因强制停止、省电策略、系统内存压力而中断。不会自动从中断点重新推理，但已完成的文字有保存。
+          - 编译与 APK 结构由 GitHub Actions 校验。建议 Android ARM64 8GB RAM 以上。
 
           官方模型：
           https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2
-          sha256: 393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96
+          SHA-256: 393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96
           EOF
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "$TAG" "$FILE" --clobber --repo "${{ github.repository }}"
           else
             gh release create "$TAG" "$FILE" --repo "${{ github.repository }}" \
               --target "${{ github.sha }}" \
-              --title "知音 v0.7.1 · Qwen3-ASR 高精度 CPU 加速版" \
+              --title "知音 v0.7.2 · Qwen3-ASR 后台持续识别" \
               --prerelease --notes-file release-notes.md
           fi
