@@ -192,34 +192,6 @@ public class MainActivity extends Activity {
                 }else beginBackgroundAsr(selected.getAbsolutePath());
             });
         }
-        @JavascriptInterface public void startThreadBenchmark(){
-            if(!working.compareAndSet(false,true)){send("message","已有任务正在执行");return;}
-            recognitionCancelled.set(false);
-            new Thread(()->{
-                try{
-                    File source=localMedia;
-                    if(source==null||!source.isFile())
-                        throw new IOException("请先导入视频或音频，或下载 MP4，然后再测速");
-                    String report=AsrPerformanceTuner.benchmark(MainActivity.this,source,
-                        new AsrPerformanceTuner.Listener(){
-                            @Override public void progress(String msg){send("tuneProgress",msg);}
-                            @Override public boolean cancelled(){return recognitionCancelled.get()||Thread.currentThread().isInterrupted();}
-                        });
-                    send("tuneDone",report);
-                    send("tuneStatus","当前模式："+AsrPerformanceTuner.selectedThreads(MainActivity.this)+" CPU 线程");
-                }catch(java.io.InterruptedIOException e){
-                    send("tuneError","测速已取消，保持之前的配置");
-                }catch(Exception e){
-                    send("tuneError","测速未完成："+message(e)+"；保留之前的配置");
-                }finally{working.set(false);send("idle","");}
-            },"qwen3-thread-benchmark").start();
-        }
-        @JavascriptInterface public void resetThreads(){
-            if(working.get()){send("message","请在当前任务结束后恢复默认设置");return;}
-            AsrPerformanceTuner.reset(MainActivity.this);
-            send("tuneStatus","当前模式：2 CPU 线程（v0.7 原版）");
-            send("tuneDone","已恢复原版两线程设置；模型权重和分段不变。");
-        }
         @JavascriptInterface public void cancelAsr(){
             Intent cancel=new Intent(MainActivity.this,TranscriptionService.class);
             cancel.setAction(TranscriptionService.ACTION_CANCEL);
