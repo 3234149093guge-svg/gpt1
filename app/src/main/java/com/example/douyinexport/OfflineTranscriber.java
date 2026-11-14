@@ -28,6 +28,7 @@ public final class OfflineTranscriber {
     public interface Listener {
         void progress(String text);
         boolean cancelled();
+        default void onSegment(String text,long startMs,long endMs){}
     }
     public static final class Result {
         public final String text;
@@ -164,8 +165,12 @@ public final class OfflineTranscriber {
                 String text;
                 try{text=normalize(engine.recognize(clip));}
                 finally{inferenceNs+=android.os.SystemClock.elapsedRealtimeNanos()-startNs;}
-                if(!text.isEmpty())segments.add(new Segment(text,
-                    start*1000L/TARGET_RATE,end*1000L/TARGET_RATE));
+                if(!text.isEmpty()){
+                    Segment part=new Segment(text,start*1000L/TARGET_RATE,end*1000L/TARGET_RATE);
+                    segments.add(part);
+                    // Per-segment durable checkpoint in background service.
+                    listener.onSegment(punctuation(part.text),part.startMs,part.endMs);
+                }
             }
             used=0;chunkStart=end;frameSamples=0;frameSquares=0f;quietFrames=0;peakEnergy=0.013f;
         }
@@ -295,7 +300,7 @@ public final class OfflineTranscriber {
         if(!QwenModelManager.installed(context))throw new IOException("请先下载安装 Qwen3-ASR-0.6B INT8 模型");
         File modelDir=QwenModelManager.modelDir(context);
         ensureRunning(listener);
-        int threads=AsrPerformanceTuner.selectedThreads(context);
+        int threads=2; // Explicit user preference: original v0.7 high-accuracy 2-thread CPU mode.
         long totalStart=android.os.SystemClock.elapsedRealtimeNanos();
         listener.progress("Qwen3-ASR-0.6B INT8 · "+threads+" CPU 线程，准备模型…");
         List<Segment> segments=new ArrayList<>();
