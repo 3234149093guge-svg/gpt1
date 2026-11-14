@@ -144,7 +144,9 @@ public final class TranscriptionService extends Service {
             ACTIVE.set(false);
             QwenEnginePool.clearIdle();
             stopForeground(STOP_FOREGROUND_REMOVE);
-            stopSelfResult(startId);
+            // A notification's CANCEL command or duplicate START may create a newer
+            // startId. Stop unconditionally once the sole active worker ends.
+            stopSelf();
         }
     }
 
