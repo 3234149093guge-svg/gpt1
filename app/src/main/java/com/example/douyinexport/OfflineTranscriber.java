@@ -23,11 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * Fully on-device Mandarin ASR. The packaged Vosk model is copied to private
- * storage on the first run; video/audio is decoded with Android MediaCodec
- * and resampled into the required 16kHz mono PCM stream.
- */
+/** Android MediaCodec to 16-kHz mono PCM; original v0.7 speech splitting is unchanged. */
 public final class OfflineTranscriber {
     public interface Listener {
         void progress(String text);
@@ -37,14 +33,38 @@ public final class OfflineTranscriber {
         public final String text;
         public final String subtitles;
         public final int segments;
-        Result(String text, String subtitles, int segments) {
+        public final String performance;
+        Result(String text, String subtitles, int segments, String performance) {
             this.text=text;
             this.subtitles=subtitles;
             this.segments=segments;
+            this.performance=performance;
         }
     }
     private static final int TARGET_RATE=16000;
     private OfflineTranscriber() {}
+
+    private static final class SampleReady extends Exception {
+        final float[] samples;
+        SampleReady(float[] samples){this.samples=samples;}
+    }
+    private static final class DecodeStats {
+        long inferenceNs;
+        int chunks;
+        long fullNs;
+    }
+    /**
+     * For opt-in thread benchmark only; the same first 8 seconds of decoded
+     * PCM is given to every thread count, without modifying normal splitting.
+     */
+    public static float[] sampleForBenchmark(File file, Listener listener) throws Exception {
+        try{
+            decode(file,null,new ArrayList<>(),listener);
+        }catch(SampleReady sample){
+            return sample.samples;
+        }
+        throw new IOException("音频过短，无法获得用于测速的片段（建议至少 8 秒）");
+    }
 
     private static void ensureRunning(Listener l) throws InterruptedIOException {
         if(l.cancelled()) throw new InterruptedIOException("识别已取消");
@@ -76,6 +96,7 @@ public final class OfflineTranscriber {
         final List<Segment> segments;
         final Listener listener;
         final int rate;
+        long inferenceNs=0;
         long cursor=0,produced=0,chunkStart=0;
         double next=0;
         float previous=0;
@@ -107,6 +128,11 @@ public final class OfflineTranscriber {
             float v=Math.max(-1.0f,Math.min(1.0f,value));
             block[used++]=v;
             produced++;
+            if(engine==null){
+                if(used>=TARGET_RATE*8)
+                    throw new SampleReady(java.util.Arrays.copyOf(block,used));
+                return;
+            }
             frameSquares+=v*v;frameSamples++;
             if(frameSamples>=2560){
                 float rms=(float)Math.sqrt(frameSquares/frameSamples);
@@ -122,6 +148,10 @@ public final class OfflineTranscriber {
         void flush()throws Exception{
             ensureRunning(listener);
             if(used==0)return;
+            if(engine==null){
+                if(used>=TARGET_RATE*2)throw new SampleReady(java.util.Arrays.copyOf(block,used));
+                return;
+            }
             int count=used;
             float sum=0;
             for(int i=0;i<count;i++)sum+=block[i]*block[i];
@@ -130,7 +160,10 @@ public final class OfflineTranscriber {
             if(count>=TARGET_RATE/2&&rms>=0.0012f){
                 listener.progress("Qwen3-ASR 识别中：已处理 "+(start/TARGET_RATE)+" 秒，正在识别下一段……");
                 float[] clip=java.util.Arrays.copyOf(block,count);
-                String text=normalize(engine.recognize(clip));
+                long startNs=android.os.SystemClock.elapsedRealtimeNanos();
+                String text;
+                try{text=normalize(engine.recognize(clip));}
+                finally{inferenceNs+=android.os.SystemClock.elapsedRealtimeNanos()-startNs;}
                 if(!text.isEmpty())segments.add(new Segment(text,
                     start*1000L/TARGET_RATE,end*1000L/TARGET_RATE));
             }
@@ -153,7 +186,9 @@ public final class OfflineTranscriber {
             rs.append(mono/channels);
         }
     }
-    private static void decode(File media,Qwen3AsrEngine recog,List<Segment> segments,Listener listener) throws Exception{
+    private static DecodeStats decode(File media,Qwen3AsrEngine recog,List<Segment> segments,Listener listener) throws Exception{
+        long overallStart=android.os.SystemClock.elapsedRealtimeNanos();
+        DecodeStats stats=new DecodeStats();
         MediaExtractor extractor=new MediaExtractor();
         MediaCodec decoder=null;
         boolean decoderStarted=false;
@@ -242,6 +277,8 @@ public final class OfflineTranscriber {
             }
             if(rs==null)throw new IOException("无法解码音轨");
             rs.finish();
+            stats.inferenceNs=rs.inferenceNs;
+            stats.chunks=segments.size();
         }finally{
             if(decoder!=null){
                 if(decoderStarted)try{decoder.stop();}catch(Exception ignored){}
@@ -249,6 +286,8 @@ public final class OfflineTranscriber {
             }
             extractor.release();
         }
+        stats.fullNs=android.os.SystemClock.elapsedRealtimeNanos()-overallStart;
+        return stats;
     }
 
     public static Result transcribe(Context context,File file,Listener listener)throws Exception{
@@ -256,12 +295,28 @@ public final class OfflineTranscriber {
         if(!QwenModelManager.installed(context))throw new IOException("请先下载安装 Qwen3-ASR-0.6B INT8 模型");
         File modelDir=QwenModelManager.modelDir(context);
         ensureRunning(listener);
-        listener.progress("正在加载 Qwen3-ASR-0.6B INT8（CPU 模式，需较多内存）……");
+        int threads=AsrPerformanceTuner.selectedThreads(context);
+        long totalStart=android.os.SystemClock.elapsedRealtimeNanos();
+        listener.progress("Qwen3-ASR-0.6B INT8 · "+threads+" CPU 线程，准备模型…");
         List<Segment> segments=new ArrayList<>();
-        try(Qwen3AsrEngine recognizer=new Qwen3AsrEngine(modelDir.getAbsolutePath())){
-            decode(file,recognizer,segments,listener);
+        long modelNs,fullNs,inferenceNs;
+        boolean reused;
+        long modelStart=android.os.SystemClock.elapsedRealtimeNanos();
+        try(QwenEnginePool.Lease lease=QwenEnginePool.obtain(modelDir.getAbsolutePath(),threads)){
+            reused=lease.reused;
+            modelNs=android.os.SystemClock.elapsedRealtimeNanos()-modelStart;
+            DecodeStats timing=decode(file,lease.engine,segments,listener);
+            fullNs=timing.fullNs;
+            inferenceNs=timing.inferenceNs;
         }
         ensureRunning(listener);
+        long totalNs=android.os.SystemClock.elapsedRealtimeNanos()-totalStart;
+        long pipelineNs=Math.max(0,fullNs-inferenceNs);
+        String stats=String.format(Locale.CHINA,
+            "CPU %d 线程｜%d 段｜总耗时 %.2f 秒｜模型%s %.2f 秒｜AI 推理 %.2f 秒｜解码与分段约 %.2f 秒",
+            threads,segments.size(),totalNs/1e9,reused?"复用":"加载",
+            modelNs/1e9,inferenceNs/1e9,pipelineNs/1e9);
+        listener.progress(stats);
         if(segments.isEmpty())throw new IOException("没有识别到清晰语音，请确认音轨包含中文人声");
         StringBuilder txt=new StringBuilder(),srt=new StringBuilder();
         int id=0;
@@ -274,6 +329,6 @@ public final class OfflineTranscriber {
                .append(time(part.startMs)).append(" --> ").append(time(part.endMs)).append('\n')
                .append(line).append("\n\n");
         }
-        return new Result(txt.toString(),srt.toString(),id);
+        return new Result(txt.toString(),srt.toString(),id,stats);
     }
 }
