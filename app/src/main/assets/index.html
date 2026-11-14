@@ -46,10 +46,10 @@ button:disabled{opacity:.47}
 </style>
 </head>
 <body><main>
-<header class="top"><div class="brand"><b>知</b>知音</div><div class="vers">QWEN3 ASR / 0.7</div></header>
+<header class="top"><div class="brand"><b>知</b>知音</div><div class="vers">QWEN3 ASR / 0.7.1</div></header>
 <div class="overline">OFFLINE ASR · VIDEO · TRANSCRIPT</div>
 <h1>视频与高精度文字稿。</h1>
-<p class="sub">视频支持抖音链接解析或导入本地文件；Qwen3-ASR-0.6B INT8 在手机本地识别，音频不会上传。首次需要单独下载模型。</p>
+<p class="sub">Qwen3-ASR-0.6B INT8 完全离线识别。保留原版高精度参数，加入可选 2/3/4 线程测速、模型短时复用及性能报告。</p>
 <section class="panel">
  <div class="t">分享链接 <span class="no">01 / INPUT</span></div>
  <textarea id="input" placeholder="粘贴抖音复制的分享内容，例如：&#10;https://v.douyin.com/NRlGp9fKoMs/"></textarea>
@@ -87,6 +87,7 @@ button:disabled{opacity:.47}
   <button onclick="copyTranscript()">复制文字稿</button>
  </div>
  <div class="message" id="asrStatus">尚未导入音视频。识别全程不上传文件。</div>
+ <p class="footnote" id="asrStats">转写完成后显示模型加载、AI 推理和音频解码耗时。</p>
  <label class="small" for="transcript" style="display:block;margin:16px 0 6px">可编辑中文文字稿</label>
  <textarea id="transcript" placeholder="识别后将在这里显示文字稿…" style="min-height:220px"></textarea>
  <div class="row">
@@ -96,8 +97,18 @@ button:disabled{opacity:.47}
  <label class="small" for="subtitles" style="display:block;margin:14px 0 6px">分段字幕（SRT）</label>
  <textarea id="subtitles" placeholder="自动生成 SRT 字幕…" style="min-height:130px"></textarea>
 </section>
+<section class="panel" id="performancePanel">
+ <div class="t">本地性能优化 <span class="no">04 / PERFORMANCE</span></div>
+ <div class="result-title"><i style="background:#7179ce"></i><span id="tuneStatus">当前模式：2 CPU 线程（原版配置）</span></div>
+ <p class="footnote">使用同一段约 8 秒音频分别测试 2/3/4 线程。仅当输出文字与原版完全一致且单段推理提速至少 10% 时，才采用更快配置。不修改模型、精度或字幕分段。首次测速可能较久。</p>
+ <div class="row">
+  <button id="tuneStart" class="primary" onclick="startBenchmark()">在当前音视频上自动测速</button>
+  <button onclick="App.resetThreads()">恢复原版 2 线程</button>
+ </div>
+ <p class="message" id="tuneResult">建议先完成一次普通转写，再使用同一视频测速。测速会逐一加载模型，仅需做一次。</p>
+</section>
 <section class="panel">
- <div class="logHead"><div class="t" style="margin:0">解析诊断 <span class="no">04 / DEBUG</span></div><button class="mini" onclick="App.copyLogs()">复制日志</button></div>
+ <div class="logHead"><div class="t" style="margin:0">解析诊断 <span class="no">05 / DEBUG</span></div><button class="mini" onclick="App.copyLogs()">复制日志</button></div>
  <div class="log" id="log">尚未开始解析。</div>
 </section>
 <p class="warning">视频仅供你有权访问和保存的用途。无第三方转写 API、无需账号或 API Key。模型安装需要联网；安装完成后，本地音视频转写可完全离线。视频链接解析受平台权限和网络环境影响。</p>
@@ -125,6 +136,12 @@ function downloadVideo(){
  if(running)return;
  toggleBusy(true);$('save').hidden=true;show('load','正在下载','将验证视频轨道，成功后保存至手机「下载」目录');
  App.download();
+}
+function startBenchmark(){
+ if(running)return;
+ toggleBusy(true);
+ $('tuneResult').textContent='测速中：逐次使用同一片段比较 2/3/4 线程…';
+ App.startThreadBenchmark();
 }
 function startAsr(){
  if(running)return;
@@ -161,6 +178,11 @@ window.fromAndroid=d=>{
  case 'transcript':$('transcript').value=d.text;break;
  case 'subtitles':$('subtitles').value=d.text;break;
  case 'asrSaved':$('asrStatus').textContent=d.text;break;
+ case 'asrStats':$('asrStats').textContent=d.text;break;
+ case 'tuneProgress':toggleBusy(true);$('tuneResult').textContent=d.text;break;
+ case 'tuneStatus':$('tuneStatus').textContent=d.text;break;
+ case 'tuneDone':toggleBusy(false);$('tuneResult').textContent=d.text;break;
+ case 'tuneError':toggleBusy(false);$('tuneResult').textContent=d.text;break;
  }
 }
 </script></body></html>
