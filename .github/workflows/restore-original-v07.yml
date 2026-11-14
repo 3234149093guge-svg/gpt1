@@ -1,0 +1,38 @@
+name: Restore original verified Zhiyin v0.7 release APK
+on:
+  push:
+    paths:
+      - .github/workflows/restore-original-v07.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  restore-original:
+    if: github.repository == '3234149093guge-svg/gpt1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Fetch originally published v0.7 APK (verified successful run)
+        uses: actions/download-artifact@v4
+        with:
+          name: Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7-APK
+          run-id: 43529873163
+          github-token: ${{ github.token }}
+          path: original
+      - name: Validate EXACT original APK sha256
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=original/Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.apk
+          test -s "$APK"
+          echo '44275e8c222e5cfc11b557c7a83ee39770152ae18e347369ee39772e60ed11ab  original/Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.apk' | sha256sum -c -
+          unzip -tq "$APK" >/dev/null
+      - name: Restore original v0.7 asset rather than intermediate development builds
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload v0.7.0-qwen3-asr-0.6b \
+            original/Zhiyin-Qwen3-ASR-0.6B-INT8-v0.7.apk \
+            --clobber --repo "${{ github.repository }}"

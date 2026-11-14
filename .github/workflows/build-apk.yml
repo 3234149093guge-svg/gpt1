@@ -42,7 +42,7 @@ jobs:
           unzip -tq "$APK" >/dev/null
           unzip -l "$APK" | grep 'lib/arm64-v8a/libsherpa-onnx-jni.so'
           unzip -l "$APK" | grep 'assets/index.html'
-          aapt dump badging "$APK" | grep "package: name='com.example.douyinexport.speedtest'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.example.douyinexport.speedtest'"
           grep -q 'numThreads = threads' app/src/main/java/com/example/douyinexport/Qwen3AsrEngine.kt
           grep -q 'baseline.equals(result)' app/src/main/java/com/example/douyinexport/AsrPerformanceTuner.java
           grep -q 'IDLE_SECONDS=120' app/src/main/java/com/example/douyinexport/QwenEnginePool.java
