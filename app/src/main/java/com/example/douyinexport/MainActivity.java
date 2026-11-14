@@ -5,6 +5,9 @@ import android.os.Bundle;
 import android.os.Build;
 import android.os.Environment;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.BroadcastReceiver;
+import android.content.pm.PackageManager;
 import android.content.Context;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -29,7 +32,12 @@ public class MainActivity extends Activity {
     private static final int PICK_MEDIA=89;
     private static final int PICK_MODEL=90;
     private volatile File localMedia=null;
-    private final java.util.concurrent.atomic.AtomicBoolean recognitionCancelled=new java.util.concurrent.atomic.AtomicBoolean(false);
+    private static final int REQUEST_NOTIFICATIONS=913;
+    private String pendingAsrMediaPath=null;
+    private boolean statusReceiverRegistered=false;
+    private final BroadcastReceiver statusReceiver=new BroadcastReceiver(){
+        @Override public void onReceive(Context context,Intent intent){refreshAsrStatus();}
+    };
     private static final String SAMPLE_LINK="https://v.douyin.com/NRlGp9fKoMs/";
     private static final String ANDROID_UA="Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36";
     private static final String IPHONE_UA="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
@@ -60,7 +68,7 @@ public class MainActivity extends Activity {
                 if(!incoming.isEmpty()){send("link",incoming);incoming="";}
                 send(QwenModelManager.installed(MainActivity.this)?"modelReady":"modelMissing",
                     QwenModelManager.installed(MainActivity.this)?"模型已安装，可离线识别":"模型未安装");
-                send("tuneStatus","当前模式："+AsrPerformanceTuner.selectedThreads(MainActivity.this)+" CPU 线程");
+                refreshAsrStatus();
             }
         });
         setContentView(ui);
@@ -155,6 +163,7 @@ public class MainActivity extends Activity {
             });
         }
         @JavascriptInterface public void pickMedia(){
+            if(TranscriptionService.isRunning()){send("asrError","后台识别期间请勿替换音视频文件");return;}
             runOnUiThread(()->{
                 Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 i.addCategory(Intent.CATEGORY_OPENABLE);
@@ -165,29 +174,23 @@ public class MainActivity extends Activity {
             });
         }
         @JavascriptInterface public void transcribe(){
-            if(!working.compareAndSet(false,true)){send("message","其他任务尚未结束");return;}
-            recognitionCancelled.set(false);
-            new Thread(()->{
-                try{
-                    if(!QwenModelManager.installed(MainActivity.this))
-                        throw new IOException("请先安装 Qwen3-ASR-0.6B INT8 模型");
-                    File selected=localMedia;
-                    if(selected==null||!selected.isFile())
-                        throw new IOException("请先下载 MP4 或导入本地音视频");
-                    send("asrProgress","正在初始化 Qwen3-ASR 本地模型…");
-                    OfflineTranscriber.Result result=OfflineTranscriber.transcribe(
-                        MainActivity.this,selected,new OfflineTranscriber.Listener(){
-                            @Override public void progress(String info){send("asrProgress",info);}
-                            @Override public boolean cancelled(){return recognitionCancelled.get()||Thread.currentThread().isInterrupted();}
-                        });
-                    send("transcript",result.text);
-                    send("subtitles",result.subtitles);
-                    send("asrReady","完成 "+result.segments+" 段离线识别，文字稿可编辑及保存");
-                    send("asrStats",result.performance);
-                }catch(java.io.InterruptedIOException e){send("asrError","识别已取消");}
-                 catch(Exception e){send("asrError","转写失败："+message(e));}
-                finally{working.set(false);send("idle","");}
-            },"qwen3-asr").start();
+            if(working.get()){send("asrError","请先完成当前导入或下载任务");return;}
+            if(TranscriptionService.isRunning()){send("asrProgress","后台识别正在运行，请查看通知栏");return;}
+            if(!QwenModelManager.installed(MainActivity.this)){
+                send("asrError","请先安装 Qwen3-ASR-0.6B INT8 模型");return;
+            }
+            File selected=localMedia;
+            if(selected==null||!selected.isFile()){
+                send("asrError","请先下载 MP4 或导入本地音视频");return;
+            }
+            runOnUiThread(()->{
+                if(android.os.Build.VERSION.SDK_INT>=33
+                    &&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED){
+                    pendingAsrMediaPath=selected.getAbsolutePath();
+                    requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},REQUEST_NOTIFICATIONS);
+                    send("asrProgress","请允许系统通知，以便后台持续显示识别进度");
+                }else beginBackgroundAsr(selected.getAbsolutePath());
+            });
         }
         @JavascriptInterface public void startThreadBenchmark(){
             if(!working.compareAndSet(false,true)){send("message","已有任务正在执行");return;}
@@ -217,7 +220,12 @@ public class MainActivity extends Activity {
             send("tuneStatus","当前模式：2 CPU 线程（v0.7 原版）");
             send("tuneDone","已恢复原版两线程设置；模型权重和分段不变。");
         }
-        @JavascriptInterface public void cancelAsr(){recognitionCancelled.set(true);}
+        @JavascriptInterface public void cancelAsr(){
+            Intent cancel=new Intent(MainActivity.this,TranscriptionService.class);
+            cancel.setAction(TranscriptionService.ACTION_CANCEL);
+            startService(cancel);
+            send("asrProgress","正在停止后台识别…已完成段落会保留");
+        }
         @JavascriptInterface public void exportTxt(String value){
             new Thread(()->exportText(value,"文字稿","txt","text/plain"),"export-txt").start();
         }
@@ -517,9 +525,12 @@ public class MainActivity extends Activity {
         }finally{c.disconnect();}
     }
     private void downloadVideo() throws Exception {
+        if(TranscriptionService.isRunning())throw new IOException("后台识别正在进行，请先完成再下载新视频");
         String url=mediaUrl;
         if(url.isEmpty()){send("error","请先解析并验证视频链接");return;}
-        File temp=new File(getCacheDir(),"video_"+System.currentTimeMillis()+".mp4");
+        File dir=new File(getFilesDir(),"imported_media");
+        if(!dir.exists()&&!dir.mkdirs())throw new IOException("无法创建本地音视频目录");
+        File temp=new File(dir,"video_"+System.currentTimeMillis()+".mp4");
         HttpURLConnection c=null;
         try{
             send("progress","正在下载视频…");
@@ -608,6 +619,7 @@ public class MainActivity extends Activity {
         if(result!=RESULT_OK||data==null||data.getData()==null)return;
         final Uri selected=data.getData();
         if(request!=PICK_MEDIA&&request!=PICK_MODEL)return;
+        if(TranscriptionService.isRunning()){send("asrError","后台识别期间不可替换媒体或模型文件");return;}
         if(!working.compareAndSet(false,true)){send("message","另一任务尚未结束");return;}
         new Thread(()->{
             try{
@@ -618,7 +630,9 @@ public class MainActivity extends Activity {
                 }else{
                     String mime=getContentResolver().getType(selected);
                     boolean audio=mime!=null&&mime.startsWith("audio/");
-                    File temp=new File(getCacheDir(),"media_"+System.currentTimeMillis()+(audio?".m4a":".mp4"));
+                    File dir=new File(getFilesDir(),"imported_media");
+                    if(!dir.exists()&&!dir.mkdirs())throw new IOException("无法创建本地音视频目录");
+                    File temp=new File(dir,"media_"+System.currentTimeMillis()+(audio?".m4a":".mp4"));
                     try(InputStream in=getContentResolver().openInputStream(selected);
                         OutputStream out=new FileOutputStream(temp)){
                         if(in==null)throw new IOException("无法读取所选文件");
@@ -674,13 +688,56 @@ public class MainActivity extends Activity {
         }catch(Exception e){send("asrError","导出失败："+message(e));}
     }
 
+
+    private void beginBackgroundAsr(String path){
+        Intent task=new Intent(this,TranscriptionService.class);
+        task.setAction(TranscriptionService.ACTION_START);
+        task.putExtra(TranscriptionService.EXTRA_FILE,path);
+        try{
+            if(android.os.Build.VERSION.SDK_INT>=26)startForegroundService(task);
+            else startService(task);
+            send("asrProgress","后台识别已启动；可以切换到其他 App，通过系统通知查看进度");
+        }catch(Exception e){
+            send("asrError","启动后台服务失败："+message(e));
+        }
+    }
+    @Override public void onRequestPermissionsResult(int request,String[] perms,int[] grants){
+        super.onRequestPermissionsResult(request,perms,grants);
+        if(request==REQUEST_NOTIFICATIONS&&pendingAsrMediaPath!=null){
+            String path=pendingAsrMediaPath;pendingAsrMediaPath=null;
+            if(grants.length==0||grants[0]!=PackageManager.PERMISSION_GRANTED)
+                send("asrProgress","未允许通知：仍可后台识别，但通知栏可能不显示进度");
+            beginBackgroundAsr(path);
+        }
+    }
+    private void refreshAsrStatus(){
+        send("asrSnapshot",TranscriptionStore.snapshot(this,TranscriptionService.isRunning()).toString());
+    }
+    @Override protected void onResume(){
+        super.onResume();
+        if(!statusReceiverRegistered){
+            IntentFilter filter=new IntentFilter(TranscriptionService.ACTION_UPDATED);
+            if(android.os.Build.VERSION.SDK_INT>=33)
+                registerReceiver(statusReceiver,filter,Context.RECEIVER_NOT_EXPORTED);
+            else registerReceiver(statusReceiver,filter);
+            statusReceiverRegistered=true;
+        }
+        refreshAsrStatus();
+    }
+    @Override protected void onPause(){
+        if(statusReceiverRegistered){
+            unregisterReceiver(statusReceiver);
+            statusReceiverRegistered=false;
+        }
+        super.onPause();
+    }
     @Override public void onTrimMemory(int level){
         super.onTrimMemory(level);
         if(level>=android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW)
             QwenEnginePool.clearIdle();
     }
     @Override protected void onDestroy(){
-        recognitionCancelled.set(true);
+        // Closing this activity does NOT cancel the independent foreground service.
         QwenEnginePool.clearIdle();
         if(ui!=null)ui.destroy();
         super.onDestroy();
